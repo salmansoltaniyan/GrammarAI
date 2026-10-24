@@ -1,11 +1,15 @@
 package com.salman.grammarai
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.os.Bundle
 import android.view.View
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.salman.grammarai.databinding.ActivityMainBinding
 import kotlinx.coroutines.launch
 
@@ -90,9 +94,22 @@ class MainActivity : AppCompatActivity() {
                 binding.tvTestCorrected.text = data.correctedText
                 binding.tvTestExplanation.text = data.explanation
             }.onFailure { error ->
-                Toast.makeText(this@MainActivity, "Error: ${error.localizedMessage}", Toast.LENGTH_LONG).show()
+                showErrorDialog("Gemini API Error", error.localizedMessage ?: "Unknown error")
             }
         }
     }
-}
 
+    private fun showErrorDialog(title: String, message: String) {
+        MaterialAlertDialogBuilder(this)
+            .setTitle(title)
+            .setMessage(message)
+            .setPositiveButton("OK", null)
+            .setNeutralButton("Copy Error") { _, _ ->
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                val clip = ClipData.newPlainText("Error Details", message)
+                clipboard.setPrimaryClip(clip)
+                Toast.makeText(this, "Error copied to clipboard", Toast.LENGTH_SHORT).show()
+            }
+            .show()
+    }
+}

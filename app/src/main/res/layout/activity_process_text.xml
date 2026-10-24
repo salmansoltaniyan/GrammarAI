@@ -99,7 +99,8 @@
             android:layout_height="wrap_content"
             android:textColor="@color/error"
             android:textSize="14sp"
-            android:gravity="center" />
+            android:gravity="center"
+            android:textIsSelectable="true" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnOpenSettings"
