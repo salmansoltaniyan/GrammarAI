@@ -46,12 +46,11 @@ Task:
 1. Automatically detect whether the text is Dutch or English (or a mix).
 2. Fix all grammatical mistakes, spelling errors, incorrect articles (de/het in Dutch), word order (Dutch V2 rule, inversion), verb conjugations, and phrasing to sound completely natural.
 3. Provide concise explanation of the changes made and grammar rules behind them (in English).
-4. At the very end of the explanation, include the Persian translation of the corrected sentence.
 
 Output your response strictly as a JSON object with exactly two string fields:
 {
   "correctedText": "the corrected text only",
-  "explanation": "concise bullet points explaining what was changed, ending with Persian translation"
+  "explanation": "concise bullet points explaining what was changed, ending with Persian translation of the corrected sentence."
 }
 Do not add any explanations outside the JSON object.
         """.trimIndent()
