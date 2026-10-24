@@ -20,3 +20,4 @@ class PreferencesManager(context: Context) {
         private const val KEY_API_KEY = "gemini_api_key"
     }
 }
+

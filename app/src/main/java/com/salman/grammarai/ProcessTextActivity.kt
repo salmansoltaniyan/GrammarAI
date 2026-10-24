@@ -117,3 +117,4 @@ class ProcessTextActivity : AppCompatActivity() {
         binding.tvErrorMessage.text = message
     }
 }
+
