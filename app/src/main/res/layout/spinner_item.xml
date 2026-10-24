@@ -9,3 +9,4 @@
     android:padding="12dp"
     android:ellipsize="marquee"
     android:singleLine="true" />
+

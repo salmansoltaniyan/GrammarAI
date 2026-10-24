@@ -27,24 +27,10 @@ class ProcessTextActivity : AppCompatActivity() {
         binding = ActivityProcessTextBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        setFinishOnTouchOutside(false)
-
-        // Float at the top of the screen nicely above the keyboard
+        // Beautiful centered dialog card
         val displayMetrics = resources.displayMetrics
-        val width = (displayMetrics.widthPixels * 0.94).toInt()
+        val width = (displayMetrics.widthPixels * 0.92).toInt()
         window.setLayout(width, android.view.ViewGroup.LayoutParams.WRAP_CONTENT)
-
-        val params = window.attributes
-        params.gravity = android.view.Gravity.TOP or android.view.Gravity.CENTER_HORIZONTAL
-        params.y = (displayMetrics.density * 48).toInt()
-        window.attributes = params
-
-        // Crucial: NOT_TOUCH_MODAL keeps window visible while typing in background app/keyboard!
-        window.addFlags(
-            android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-            android.view.WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
-        )
-        window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND)
 
         prefs = PreferencesManager(this)
 

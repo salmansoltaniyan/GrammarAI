@@ -9,3 +9,4 @@
     android:background="?attr/selectableItemBackground"
     android:ellipsize="marquee"
     android:singleLine="true" />
+
