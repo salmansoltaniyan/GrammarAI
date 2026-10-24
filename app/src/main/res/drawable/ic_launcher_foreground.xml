@@ -1,0 +1,13 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Star / Sparkle Icon -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,24 L58,45 L79,49 L58,53 L54,74 L50,53 L29,49 L50,45 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M76,66 L78,74 L86,76 L78,78 L76,86 L74,78 L66,76 L74,74 Z" />
+</vector>

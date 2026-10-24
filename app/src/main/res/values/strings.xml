@@ -1,0 +1,24 @@
+<resources>
+    <string name="app_name">Grammar AI</string>
+    <string name="action_label">✨ Grammar AI</string>
+    <string name="settings_title">Grammar AI Settings</string>
+    <string name="api_key_hint">Enter Gemini API Key</string>
+    <string name="api_key_save">Save Key</string>
+    <string name="api_key_saved">API Key saved successfully!</string>
+    <string name="api_key_missing">Please set your Gemini API Key in Grammar AI app first.</string>
+    <string name="how_to_use_title">How to use:</string>
+    <string name="how_to_use_step1">1. Select any Dutch or English text in any app (WhatsApp, Chrome, Telegram, etc.)</string>
+    <string name="how_to_use_step2">2. In the popup menu (next to Copy/Paste), tap \"✨ Grammar AI\"</string>
+    <string name="how_to_use_step3">3. Review the corrected text and tap \"Replace\" or \"Copy\"!</string>
+    <string name="test_section_title">Test it right here:</string>
+    <string name="test_hint">Type or paste Dutch/English sentence to test...</string>
+    <string name="test_button">Check Grammar</string>
+    <string name="original_text_title">Original:</string>
+    <string name="corrected_text_title">Corrected:</string>
+    <string name="explanation_title">What was changed:</string>
+    <string name="btn_replace">Replace in Text</string>
+    <string name="btn_copy">Copy</string>
+    <string name="btn_close">Close</string>
+    <string name="copied_to_clipboard">Copied to clipboard!</string>
+    <string name="analyzing">Analyzing with Gemini AI...</string>
+</resources>
