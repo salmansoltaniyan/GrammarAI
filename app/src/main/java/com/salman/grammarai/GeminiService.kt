@@ -2,6 +2,7 @@ package com.salman.grammarai
 
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -22,7 +23,6 @@ class GeminiService {
 
     companion object {
         private const val TAG = "GeminiService"
-        // Directly default to gemini-3.8-flash to avoid any preliminary blocking discovery calls
         @Volatile
         private var cachedModelName: String? = "models/gemini-3.8-flash"
     }
@@ -77,7 +77,6 @@ class GeminiService {
                     return@withContext Result.failure(Exception("No model supporting generateContent found for this key."))
                 }
 
-                // Explicit priority: Google's recommended gemini-3.8-flash first
                 val priorityList = listOf(
                     "gemini-3.8-flash",
                     "gemini-3.8",
@@ -114,13 +113,13 @@ class GeminiService {
     suspend fun checkGrammar(
         text: String,
         apiKey: String,
-        promptTemplate: String = PreferencesManager.DEFAULT_PROMPT
+        promptTemplate: String = PreferencesManager.DEFAULT_PROMPT,
+        isRetry: Boolean = false
     ): Result<GrammarResult> {
         return withContext(Dispatchers.IO) {
             try {
                 val modelToUse = cachedModelName ?: "models/gemini-3.8-flash"
 
-                // Apply template with user text
                 val finalPrompt = if (promptTemplate.contains("{text}")) {
                     promptTemplate.replace("{text}", text)
                 } else {
@@ -132,6 +131,15 @@ class GeminiService {
                 val contentObj = JSONObject().put("parts", partsArray)
                 val contentsArray = JSONArray().put(contentObj)
                 val requestJson = JSONObject().put("contents", contentsArray)
+
+                // High-speed config: minimal thinking level for fast response, direct JSON output
+                val generationConfig = JSONObject()
+                    .put("temperature", 0.1)
+                    .put("maxOutputTokens", 800)
+                    .put("responseMimeType", "application/json")
+                    .put("thinkingConfig", JSONObject().put("thinkingLevel", "low"))
+
+                requestJson.put("generationConfig", generationConfig)
 
                 val mediaType = "application/json; charset=utf-8".toMediaType()
                 val requestBody = requestJson.toString().toRequestBody(mediaType)
@@ -147,12 +155,24 @@ class GeminiService {
                 val response = try {
                     client.newCall(request).execute()
                 } catch (e: SocketTimeoutException) {
+                    if (!isRetry) {
+                        Log.w(TAG, "Socket timeout, attempting 1 retry...")
+                        delay(1000)
+                        return@withContext checkGrammar(text, apiKey, promptTemplate, isRetry = true)
+                    }
                     return@withContext Result.failure(
-                        Exception("Connection timed out (Timeout).\n\nIf you are using a VPN, please ensure that:\n1. Your VPN connection is active.\n2. Grammar AI is NOT excluded in your VPN's Split Tunneling / App Bypass settings.")
+                        Exception("Connection timed out.\n\nPlease check that your VPN is active and Grammar AI is not excluded in your VPN settings.")
                     )
                 }
 
                 val responseBody = response.body?.string() ?: ""
+
+                // Handle 503 (Server Busy) or 429 (Rate Limit) with automatic backoff retry
+                if ((response.code == 503 || response.code == 429) && !isRetry) {
+                    Log.w(TAG, "Server busy (HTTP ${response.code}). Waiting 2s and retrying...")
+                    delay(2000)
+                    return@withContext checkGrammar(text, apiKey, promptTemplate, isRetry = true)
+                }
 
                 if (!response.isSuccessful) {
                     val errorMsg = try {
@@ -161,12 +181,17 @@ class GeminiService {
                         "HTTP ${response.code}: $responseBody"
                     }
 
+                    // If thinkingConfig is rejected by this model variant, retry without thinkingConfig
+                    if (errorMsg.contains("thinkingConfig", ignoreCase = true) || errorMsg.contains("thinkingLevel", ignoreCase = true)) {
+                        return@withContext executeWithoutThinkingConfig(text, apiKey, promptTemplate, normalizedModel)
+                    }
+
                     // Invalidate cache if model fails
                     cachedModelName = null
 
                     if (errorMsg.contains("gemini-3.8-flash", ignoreCase = true) && normalizedModel != "gemini-3.8-flash") {
                         cachedModelName = "models/gemini-3.8-flash"
-                        return@withContext checkGrammar(text, apiKey, promptTemplate)
+                        return@withContext checkGrammar(text, apiKey, promptTemplate, isRetry = true)
                     }
 
                     return@withContext Result.failure(Exception("[$normalizedModel] $errorMsg"))
@@ -200,6 +225,66 @@ class GeminiService {
             } catch (e: Exception) {
                 Result.failure(e)
             }
+        }
+    }
+
+    private fun executeWithoutThinkingConfig(
+        text: String,
+        apiKey: String,
+        promptTemplate: String,
+        normalizedModel: String
+    ): Result<GrammarResult> {
+        return try {
+            val finalPrompt = if (promptTemplate.contains("{text}")) {
+                promptTemplate.replace("{text}", text)
+            } else {
+                "$promptTemplate\n\nText:\n$text"
+            }
+
+            val partObj = JSONObject().put("text", finalPrompt)
+            val partsArray = JSONArray().put(partObj)
+            val contentObj = JSONObject().put("parts", partsArray)
+            val contentsArray = JSONArray().put(contentObj)
+            val requestJson = JSONObject().put("contents", contentsArray)
+
+            val generationConfig = JSONObject()
+                .put("temperature", 0.1)
+                .put("maxOutputTokens", 800)
+                .put("responseMimeType", "application/json")
+            requestJson.put("generationConfig", generationConfig)
+
+            val mediaType = "application/json; charset=utf-8".toMediaType()
+            val requestBody = requestJson.toString().toRequestBody(mediaType)
+            val url = "https://generativelanguage.googleapis.com/v1beta/models/$normalizedModel:generateContent?key=$apiKey"
+
+            val request = Request.Builder().url(url).post(requestBody).build()
+            val response = client.newCall(request).execute()
+            val responseBody = response.body?.string() ?: ""
+
+            if (!response.isSuccessful) {
+                val errorMsg = try {
+                    JSONObject(responseBody).getJSONObject("error").getString("message")
+                } catch (e: Exception) {
+                    "HTTP ${response.code}: $responseBody"
+                }
+                return Result.failure(Exception("[$normalizedModel] $errorMsg"))
+            }
+
+            val rootJson = JSONObject(responseBody)
+            val candidates = rootJson.optJSONArray("candidates")
+            val content = candidates!!.getJSONObject(0).getJSONObject("content")
+            val rawText = content.getJSONArray("parts").getJSONObject(0).getString("text").trim()
+            val cleanedJson = cleanJsonOutput(rawText)
+            val resJson = JSONObject(cleanedJson)
+
+            Result.success(
+                GrammarResult(
+                    correctedText = resJson.optString("correctedText", text),
+                    explanation = resJson.optString("explanation", "Grammar correction completed.")
+                )
+            )
+        } catch (e: Exception) {
+            Result.failure(e)
         }
     }
 

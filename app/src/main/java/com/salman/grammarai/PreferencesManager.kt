@@ -41,7 +41,7 @@ Task:
 3. Output your response strictly as a JSON object with exactly two string fields:
 {
   "correctedText": "the corrected text only",
-  "explanation": "brief bullet points explaining what was changed and the grammar rules behind it (in Dutch/English/Persian)"
+  "explanation": "concise bullet points explaining what was changed and why (in English)"
 }
 Do not add any explanations outside the JSON object.
         """.trimIndent()
