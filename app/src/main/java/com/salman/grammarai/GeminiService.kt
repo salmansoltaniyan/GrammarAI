@@ -33,7 +33,7 @@ class GeminiService {
 
     /**
      * Dynamically finds the best available model for the given API key from Google.
-     * Prefers fast flash models like gemini-3.8-flash, gemini-2.5-flash, gemini-2.0-flash, etc.
+     * Prioritizes gemini-3.8-flash (Google's latest recommended model for fast text generation).
      */
     suspend fun discoverBestModel(apiKey: String): Result<String> {
         return withContext(Dispatchers.IO) {
@@ -79,10 +79,27 @@ class GeminiService {
                     return@withContext Result.failure(Exception("No model supporting generateContent found for this key."))
                 }
 
-                // Preference: flash models first (fastest for grammar), then any gemini model
-                val chosen = supportedList.firstOrNull { it.contains("flash", ignoreCase = true) }
-                    ?: supportedList.firstOrNull { it.contains("gemini", ignoreCase = true) }
-                    ?: supportedList.first()
+                // Explicit priority: Google's recommended gemini-3.8-flash first
+                val priorityList = listOf(
+                    "gemini-3.8-flash",
+                    "gemini-3.8",
+                    "gemini-3.5-flash",
+                    "gemini-3.0-flash"
+                )
+
+                var chosen: String? = null
+                for (priority in priorityList) {
+                    chosen = supportedList.firstOrNull { it.contains(priority, ignoreCase = true) }
+                    if (chosen != null) break
+                }
+
+                if (chosen == null) {
+                    // Filter out deprecated models like 2.5 and 1.5 if other flash models exist
+                    chosen = supportedList.firstOrNull { it.contains("flash", ignoreCase = true) && !it.contains("2.5") && !it.contains("1.5") }
+                        ?: supportedList.firstOrNull { it.contains("flash", ignoreCase = true) }
+                        ?: supportedList.firstOrNull { it.contains("gemini", ignoreCase = true) }
+                        ?: supportedList.first()
+                }
 
                 cachedModelName = chosen
                 Log.d(TAG, "Selected active model: $chosen (from ${supportedList.size} available models)")
@@ -151,8 +168,16 @@ class GeminiService {
                     } catch (e: Exception) {
                         "HTTP ${response.code}: $responseBody"
                     }
-                    // Invalidate cache if model somehow failed
+
+                    // Invalidate cache
                     cachedModelName = null
+
+                    // If Google specifically tells us to use gemini-3.8-flash, auto-retry immediately!
+                    if (errorMsg.contains("gemini-3.8-flash", ignoreCase = true) && normalizedModel != "gemini-3.8-flash") {
+                        cachedModelName = "models/gemini-3.8-flash"
+                        return@withContext checkGrammar(text, apiKey)
+                    }
+
                     return@withContext Result.failure(Exception("[$normalizedModel] $errorMsg"))
                 }
 
