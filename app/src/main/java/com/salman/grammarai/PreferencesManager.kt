@@ -15,6 +15,10 @@ class PreferencesManager(context: Context) {
     val isApiKeyConfigured: Boolean
         get() = apiKey.isNotBlank()
 
+    var selectedModel: String
+        get() = prefs.getString(KEY_SELECTED_MODEL, DEFAULT_MODEL) ?: DEFAULT_MODEL
+        set(value) = prefs.edit().putString(KEY_SELECTED_MODEL, value.trim()).apply()
+
     var customPrompt: String
         get() = prefs.getString(KEY_CUSTOM_PROMPT, DEFAULT_PROMPT) ?: DEFAULT_PROMPT
         set(value) = prefs.edit().putString(KEY_CUSTOM_PROMPT, value.trim()).apply()
@@ -26,7 +30,10 @@ class PreferencesManager(context: Context) {
     companion object {
         private const val PREFS_NAME = "grammar_ai_prefs"
         private const val KEY_API_KEY = "gemini_api_key"
+        private const val KEY_SELECTED_MODEL = "selected_model"
         private const val KEY_CUSTOM_PROMPT = "custom_prompt"
+
+        const val DEFAULT_MODEL = "gemini-3.5-flash-lite"
 
         val DEFAULT_PROMPT = """
 You are an expert language and grammar tutor specializing in Dutch (Nederlands) and English.

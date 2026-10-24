@@ -5,6 +5,8 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.os.Bundle
 import android.view.View
+import android.widget.AdapterView
+import android.widget.ArrayAdapter
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
@@ -19,6 +21,17 @@ class MainActivity : AppCompatActivity() {
     private lateinit var prefs: PreferencesManager
     private val geminiService = GeminiService()
 
+    private val availableModels = listOf(
+        ModelOption("Gemini 3.5 Flash Lite (500 req/day - Ultra Fast ⚡)", "gemini-3.5-flash-lite"),
+        ModelOption("Gemini 3.1 Flash Lite (500 req/day - Fast ⚡)", "gemini-3.1-flash-lite"),
+        ModelOption("Gemini 3.6 Flash (20 req/day)", "gemini-3.6-flash"),
+        ModelOption("Gemini 3.8 Flash (20 req/day - High Reasoning)", "gemini-3.8-flash")
+    )
+
+    data class ModelOption(val displayName: String, val modelId: String) {
+        override fun toString(): String = displayName
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
@@ -27,6 +40,7 @@ class MainActivity : AppCompatActivity() {
         prefs = PreferencesManager(this)
 
         setupApiKeySection()
+        setupModelSection()
         setupPromptSection()
         setupTestSection()
     }
@@ -50,6 +64,34 @@ class MainActivity : AppCompatActivity() {
             prefs.apiKey = key
             Toast.makeText(this, getString(R.string.api_key_saved), Toast.LENGTH_SHORT).show()
             verifyApiKey(key)
+        }
+    }
+
+    private fun setupModelSection() {
+        val adapter = ArrayAdapter(
+            this,
+            android.R.layout.simple_spinner_dropdown_item,
+            availableModels
+        )
+        binding.spModel.adapter = adapter
+
+        // Pre-select saved model
+        val currentModelId = prefs.selectedModel
+        val selectedIndex = availableModels.indexOfFirst { it.modelId == currentModelId }
+        if (selectedIndex >= 0) {
+            binding.spModel.setSelection(selectedIndex)
+        }
+
+        binding.spModel.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                val selected = availableModels[position]
+                if (prefs.selectedModel != selected.modelId) {
+                    prefs.selectedModel = selected.modelId
+                    Toast.makeText(this@MainActivity, "Model switched to: ${selected.modelId}", Toast.LENGTH_SHORT).show()
+                }
+            }
+
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
     }
 
@@ -117,7 +159,7 @@ class MainActivity : AppCompatActivity() {
         binding.btnTest.isEnabled = false
 
         lifecycleScope.launch {
-            val result = geminiService.checkGrammar(text, prefs.apiKey, prefs.customPrompt)
+            val result = geminiService.checkGrammar(text, prefs.apiKey, prefs.customPrompt, prefs.selectedModel)
             binding.pbLoading.visibility = View.GONE
             binding.btnTest.isEnabled = true
 
