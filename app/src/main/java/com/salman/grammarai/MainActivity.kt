@@ -33,9 +33,10 @@ class MainActivity : AppCompatActivity() {
     private fun setupApiKeySection() {
         if (prefs.isApiKeyConfigured) {
             binding.etApiKey.setText(prefs.apiKey)
-            updateKeyStatus(true)
+            verifyApiKey(prefs.apiKey)
         } else {
-            updateKeyStatus(false)
+            binding.tvKeyStatus.text = "Status: No Key Set ⚠"
+            binding.tvKeyStatus.setTextColor(ContextCompat.getColor(this, R.color.error))
         }
 
         binding.btnSaveApiKey.setOnClickListener {
@@ -46,18 +47,26 @@ class MainActivity : AppCompatActivity() {
             }
             binding.tilApiKey.error = null
             prefs.apiKey = key
-            updateKeyStatus(true)
             Toast.makeText(this, getString(R.string.api_key_saved), Toast.LENGTH_SHORT).show()
+            verifyApiKey(key)
         }
     }
 
-    private fun updateKeyStatus(hasKey: Boolean) {
-        if (hasKey) {
-            binding.tvKeyStatus.text = "Status: Key Active ✓"
-            binding.tvKeyStatus.setTextColor(ContextCompat.getColor(this, R.color.success))
-        } else {
-            binding.tvKeyStatus.text = "Status: No Key Set ⚠"
-            binding.tvKeyStatus.setTextColor(ContextCompat.getColor(this, R.color.error))
+    private fun verifyApiKey(apiKey: String) {
+        binding.tvKeyStatus.text = "Checking API Key with Google..."
+        binding.tvKeyStatus.setTextColor(ContextCompat.getColor(this, R.color.text_secondary))
+
+        lifecycleScope.launch {
+            val discovery = geminiService.discoverBestModel(apiKey)
+            discovery.onSuccess { modelName ->
+                val cleanName = modelName.removePrefix("models/")
+                binding.tvKeyStatus.text = "Status: Active ($cleanName) ✓"
+                binding.tvKeyStatus.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.success))
+            }.onFailure { error ->
+                binding.tvKeyStatus.text = "Status: Error verifying key ⚠"
+                binding.tvKeyStatus.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.error))
+                showErrorDialog("API Key Verification Failed", error.localizedMessage ?: "Unknown error")
+            }
         }
     }
 

@@ -21,12 +21,8 @@ class GeminiService {
 
     companion object {
         private const val TAG = "GeminiService"
-        private val CANDIDATE_MODELS = listOf(
-            "gemini-2.5-flash",
-            "gemini-2.0-flash",
-            "gemini-1.5-flash-latest",
-            "gemini-1.5-flash"
-        )
+        @Volatile
+        private var cachedModelName: String? = null
     }
 
     private val client = OkHttpClient.Builder()
@@ -35,9 +31,81 @@ class GeminiService {
         .writeTimeout(15, TimeUnit.SECONDS)
         .build()
 
+    /**
+     * Dynamically finds the best available model for the given API key from Google.
+     * Prefers fast flash models like gemini-3.8-flash, gemini-2.5-flash, gemini-2.0-flash, etc.
+     */
+    suspend fun discoverBestModel(apiKey: String): Result<String> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val url = "https://generativelanguage.googleapis.com/v1beta/models?key=$apiKey"
+                val request = Request.Builder().url(url).get().build()
+                val response = client.newCall(request).execute()
+                val body = response.body?.string() ?: throw IOException("Empty response from Google API")
+
+                if (!response.isSuccessful) {
+                    val errorMsg = try {
+                        JSONObject(body).getJSONObject("error").getString("message")
+                    } catch (e: Exception) {
+                        "HTTP ${response.code}: $body"
+                    }
+                    return@withContext Result.failure(Exception(errorMsg))
+                }
+
+                val root = JSONObject(body)
+                val modelsArray = root.optJSONArray("models")
+                    ?: return@withContext Result.failure(Exception("No models found in Google response"))
+
+                val supportedList = mutableListOf<String>()
+                for (i in 0 until modelsArray.length()) {
+                    val m = modelsArray.getJSONObject(i)
+                    val name = m.getString("name") // e.g., "models/gemini-3.8-flash"
+                    val methods = m.optJSONArray("supportedGenerationMethods")
+                    var supportsGenerate = false
+                    if (methods != null) {
+                        for (j in 0 until methods.length()) {
+                            if (methods.getString(j) == "generateContent") {
+                                supportsGenerate = true
+                                break
+                            }
+                        }
+                    }
+                    if (supportsGenerate) {
+                        supportedList.add(name)
+                    }
+                }
+
+                if (supportedList.isEmpty()) {
+                    return@withContext Result.failure(Exception("No model supporting generateContent found for this key."))
+                }
+
+                // Preference: flash models first (fastest for grammar), then any gemini model
+                val chosen = supportedList.firstOrNull { it.contains("flash", ignoreCase = true) }
+                    ?: supportedList.firstOrNull { it.contains("gemini", ignoreCase = true) }
+                    ?: supportedList.first()
+
+                cachedModelName = chosen
+                Log.d(TAG, "Selected active model: $chosen (from ${supportedList.size} available models)")
+                Result.success(chosen)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error discovering model", e)
+                Result.failure(e)
+            }
+        }
+    }
+
     suspend fun checkGrammar(text: String, apiKey: String): Result<GrammarResult> {
         return withContext(Dispatchers.IO) {
             try {
+                // Ensure we have an active model name discovered
+                val modelToUse = cachedModelName ?: run {
+                    val discovery = discoverBestModel(apiKey)
+                    if (discovery.isFailure) {
+                        return@withContext Result.failure(discovery.exceptionOrNull() ?: Exception("Failed to find available model"))
+                    }
+                    discovery.getOrThrow()
+                }
+
                 val prompt = """
                     You are an expert language and grammar tutor specializing in Dutch (Nederlands) and English.
                     The user has selected the following text:
@@ -56,7 +124,6 @@ class GeminiService {
                     Do not add any explanations outside the JSON object.
                 """.trimIndent()
 
-                // Construct Gemini API JSON payload
                 val partObj = JSONObject().put("text", prompt)
                 val partsArray = JSONArray().put(partObj)
                 val contentObj = JSONObject().put("parts", partsArray)
@@ -66,78 +133,54 @@ class GeminiService {
                 val mediaType = "application/json; charset=utf-8".toMediaType()
                 val requestBody = requestJson.toString().toRequestBody(mediaType)
 
-                var lastError: Exception? = null
+                // modelToUse is in the format "models/gemini-3.8-flash"
+                val normalizedModel = modelToUse.removePrefix("models/")
+                val url = "https://generativelanguage.googleapis.com/v1beta/models/$normalizedModel:generateContent?key=$apiKey"
 
-                // Try modern production models with automatic fallback
-                for (model in CANDIDATE_MODELS) {
-                    val url = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$apiKey"
-                    Log.d(TAG, "Attempting request with model: $model")
+                val request = Request.Builder()
+                    .url(url)
+                    .post(requestBody)
+                    .build()
 
-                    val request = Request.Builder()
-                        .url(url)
-                        .post(requestBody)
-                        .build()
+                val response = client.newCall(request).execute()
+                val responseBody = response.body?.string() ?: ""
 
-                    val response = try {
-                        client.newCall(request).execute()
+                if (!response.isSuccessful) {
+                    val errorMsg = try {
+                        JSONObject(responseBody).getJSONObject("error").getString("message")
                     } catch (e: Exception) {
-                        Log.e(TAG, "Network error calling model $model", e)
-                        lastError = e
-                        continue
+                        "HTTP ${response.code}: $responseBody"
                     }
-
-                    val responseBody = response.body?.string() ?: ""
-
-                    if (!response.isSuccessful) {
-                        val errorMsg = try {
-                            JSONObject(responseBody).getJSONObject("error").getString("message")
-                        } catch (e: Exception) {
-                            "HTTP ${response.code}: $responseBody"
-                        }
-
-                        Log.w(TAG, "Model $model returned error (code ${response.code}): $errorMsg")
-                        lastError = Exception("[$model] $errorMsg")
-
-                        // If 404 (model not found / deprecated for this API version), try next model
-                        if (response.code == 404) {
-                            continue
-                        } else {
-                            // Auth error (400, 403) or other fatal issue: stop and report immediately
-                            return@withContext Result.failure(lastError)
-                        }
-                    }
-
-                    // Extract text from successful response
-                    val rootJson = JSONObject(responseBody)
-                    val candidates = rootJson.optJSONArray("candidates")
-                    if (candidates == null || candidates.length() == 0) {
-                        return@withContext Result.failure(Exception("No candidate response generated by model $model"))
-                    }
-
-                    val content = candidates.getJSONObject(0).getJSONObject("content")
-                    val responseParts = content.getJSONArray("parts")
-                    val rawText = responseParts.getJSONObject(0).getString("text").trim()
-
-                    // Parse our custom JSON format
-                    val cleanedJson = cleanJsonOutput(rawText)
-                    val parsed = try {
-                        val resJson = JSONObject(cleanedJson)
-                        GrammarResult(
-                            correctedText = resJson.optString("correctedText", text),
-                            explanation = resJson.optString("explanation", "Grammar correction completed.")
-                        )
-                    } catch (e: Exception) {
-                        // Fallback if model answered with pure text
-                        GrammarResult(
-                            correctedText = rawText,
-                            explanation = "Direct AI output."
-                        )
-                    }
-
-                    return@withContext Result.success(parsed)
+                    // Invalidate cache if model somehow failed
+                    cachedModelName = null
+                    return@withContext Result.failure(Exception("[$normalizedModel] $errorMsg"))
                 }
 
-                Result.failure(lastError ?: Exception("Unable to connect to Gemini API with candidate models"))
+                val rootJson = JSONObject(responseBody)
+                val candidates = rootJson.optJSONArray("candidates")
+                if (candidates == null || candidates.length() == 0) {
+                    return@withContext Result.failure(Exception("No candidate response generated by model $normalizedModel"))
+                }
+
+                val content = candidates.getJSONObject(0).getJSONObject("content")
+                val responseParts = content.getJSONArray("parts")
+                val rawText = responseParts.getJSONObject(0).getString("text").trim()
+
+                val cleanedJson = cleanJsonOutput(rawText)
+                val parsed = try {
+                    val resJson = JSONObject(cleanedJson)
+                    GrammarResult(
+                        correctedText = resJson.optString("correctedText", text),
+                        explanation = resJson.optString("explanation", "Grammar correction completed.")
+                    )
+                } catch (e: Exception) {
+                    GrammarResult(
+                        correctedText = rawText,
+                        explanation = "Direct AI output."
+                    )
+                }
+
+                Result.success(parsed)
             } catch (e: Exception) {
                 Result.failure(e)
             }
