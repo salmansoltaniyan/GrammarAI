@@ -48,7 +48,7 @@ Task:
 3. Output your response strictly as a JSON object with exactly two string fields:
 {
   "correctedText": "the corrected text only",
-  "explanation": "concise bullet points explaining what was changed and why (in English)"
+  "explanation": "concise bullet points explaining what was changed and why (in English).\n\n🇮🇷 Persian Meaning:\n[Provide an accurate, fluent Persian translation of the corrected sentence here]"
 }
 Do not add any explanations outside the JSON object.
         """.trimIndent()

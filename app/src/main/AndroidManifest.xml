@@ -25,11 +25,12 @@
         <!-- Floating Dialog Activity triggered on text selection menu -->
         <activity
             android:name=".ProcessTextActivity"
-            android:label="✨ Grammar AI"
+            android:label="Grammar"
+            android:icon="@drawable/ic_launcher"
             android:exported="true"
             android:theme="@style/Theme.GrammarAI.Dialog"
             android:windowSoftInputMode="stateHidden">
-            <intent-filter>
+            <intent-filter android:priority="1000">
                 <action android:name="android.intent.action.PROCESS_TEXT" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="text/plain" />

@@ -70,9 +70,11 @@ class MainActivity : AppCompatActivity() {
     private fun setupModelSection() {
         val adapter = ArrayAdapter(
             this,
-            android.R.layout.simple_spinner_dropdown_item,
+            R.layout.spinner_item,
             availableModels
-        )
+        ).apply {
+            setDropDownViewResource(R.layout.spinner_dropdown_item)
+        }
         binding.spModel.adapter = adapter
 
         // Pre-select saved model
