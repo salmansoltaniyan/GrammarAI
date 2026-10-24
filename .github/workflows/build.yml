@@ -23,15 +23,14 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: 8.5
 
       - name: Build APK with Gradle
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
         run: gradle assembleDebug --stacktrace
 
       - name: Upload Debug APK Artifact
@@ -40,4 +39,3 @@ jobs:
           name: GrammarAI-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           retention-days: 14
-
