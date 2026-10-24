@@ -10,6 +10,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
+import java.net.SocketTimeoutException
 import java.util.concurrent.TimeUnit
 
 data class GrammarResult(
@@ -21,20 +22,17 @@ class GeminiService {
 
     companion object {
         private const val TAG = "GeminiService"
+        // Directly default to gemini-3.8-flash to avoid any preliminary blocking discovery calls
         @Volatile
-        private var cachedModelName: String? = null
+        private var cachedModelName: String? = "models/gemini-3.8-flash"
     }
 
     private val client = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(25, TimeUnit.SECONDS)
-        .writeTimeout(15, TimeUnit.SECONDS)
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
         .build()
 
-    /**
-     * Dynamically finds the best available model for the given API key from Google.
-     * Prioritizes gemini-3.8-flash (Google's latest recommended model for fast text generation).
-     */
     suspend fun discoverBestModel(apiKey: String): Result<String> {
         return withContext(Dispatchers.IO) {
             try {
@@ -94,7 +92,6 @@ class GeminiService {
                 }
 
                 if (chosen == null) {
-                    // Filter out deprecated models like 2.5 and 1.5 if other flash models exist
                     chosen = supportedList.firstOrNull { it.contains("flash", ignoreCase = true) && !it.contains("2.5") && !it.contains("1.5") }
                         ?: supportedList.firstOrNull { it.contains("flash", ignoreCase = true) }
                         ?: supportedList.firstOrNull { it.contains("gemini", ignoreCase = true) }
@@ -106,42 +103,31 @@ class GeminiService {
                 Result.success(chosen)
             } catch (e: Exception) {
                 Log.e(TAG, "Error discovering model", e)
-                Result.failure(e)
+                val friendlyError = if (e is SocketTimeoutException) {
+                    Exception("Connection timed out while checking models.\nPlease check your VPN / Internet connection.")
+                } else e
+                Result.failure(friendlyError)
             }
         }
     }
 
-    suspend fun checkGrammar(text: String, apiKey: String): Result<GrammarResult> {
+    suspend fun checkGrammar(
+        text: String,
+        apiKey: String,
+        promptTemplate: String = PreferencesManager.DEFAULT_PROMPT
+    ): Result<GrammarResult> {
         return withContext(Dispatchers.IO) {
             try {
-                // Ensure we have an active model name discovered
-                val modelToUse = cachedModelName ?: run {
-                    val discovery = discoverBestModel(apiKey)
-                    if (discovery.isFailure) {
-                        return@withContext Result.failure(discovery.exceptionOrNull() ?: Exception("Failed to find available model"))
-                    }
-                    discovery.getOrThrow()
+                val modelToUse = cachedModelName ?: "models/gemini-3.8-flash"
+
+                // Apply template with user text
+                val finalPrompt = if (promptTemplate.contains("{text}")) {
+                    promptTemplate.replace("{text}", text)
+                } else {
+                    "$promptTemplate\n\nText:\n$text"
                 }
 
-                val prompt = """
-                    You are an expert language and grammar tutor specializing in Dutch (Nederlands) and English.
-                    The user has selected the following text:
-                    \"\"\"
-                    $text
-                    \"\"\"
-
-                    Task:
-                    1. Automatically detect whether the text is Dutch or English (or a mix).
-                    2. Fix all grammatical mistakes, spelling errors, incorrect articles (de/het in Dutch), word order (Dutch V2 rule, inversion), verb conjugations, and phrasing to sound completely natural.
-                    3. Output your response strictly as a JSON object with exactly two string fields:
-                    {
-                      "correctedText": "the corrected text only",
-                      "explanation": "brief bullet points explaining what was changed and the grammar rules behind it (in Dutch/English/Persian)"
-                    }
-                    Do not add any explanations outside the JSON object.
-                """.trimIndent()
-
-                val partObj = JSONObject().put("text", prompt)
+                val partObj = JSONObject().put("text", finalPrompt)
                 val partsArray = JSONArray().put(partObj)
                 val contentObj = JSONObject().put("parts", partsArray)
                 val contentsArray = JSONArray().put(contentObj)
@@ -150,7 +136,6 @@ class GeminiService {
                 val mediaType = "application/json; charset=utf-8".toMediaType()
                 val requestBody = requestJson.toString().toRequestBody(mediaType)
 
-                // modelToUse is in the format "models/gemini-3.8-flash"
                 val normalizedModel = modelToUse.removePrefix("models/")
                 val url = "https://generativelanguage.googleapis.com/v1beta/models/$normalizedModel:generateContent?key=$apiKey"
 
@@ -159,7 +144,14 @@ class GeminiService {
                     .post(requestBody)
                     .build()
 
-                val response = client.newCall(request).execute()
+                val response = try {
+                    client.newCall(request).execute()
+                } catch (e: SocketTimeoutException) {
+                    return@withContext Result.failure(
+                        Exception("Connection timed out (Timeout).\n\nIf you are using a VPN, please ensure that:\n1. Your VPN connection is active.\n2. Grammar AI is NOT excluded in your VPN's Split Tunneling / App Bypass settings.")
+                    )
+                }
+
                 val responseBody = response.body?.string() ?: ""
 
                 if (!response.isSuccessful) {
@@ -169,13 +161,12 @@ class GeminiService {
                         "HTTP ${response.code}: $responseBody"
                     }
 
-                    // Invalidate cache
+                    // Invalidate cache if model fails
                     cachedModelName = null
 
-                    // If Google specifically tells us to use gemini-3.8-flash, auto-retry immediately!
                     if (errorMsg.contains("gemini-3.8-flash", ignoreCase = true) && normalizedModel != "gemini-3.8-flash") {
                         cachedModelName = "models/gemini-3.8-flash"
-                        return@withContext checkGrammar(text, apiKey)
+                        return@withContext checkGrammar(text, apiKey, promptTemplate)
                     }
 
                     return@withContext Result.failure(Exception("[$normalizedModel] $errorMsg"))

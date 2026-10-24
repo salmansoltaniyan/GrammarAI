@@ -15,9 +15,35 @@ class PreferencesManager(context: Context) {
     val isApiKeyConfigured: Boolean
         get() = apiKey.isNotBlank()
 
+    var customPrompt: String
+        get() = prefs.getString(KEY_CUSTOM_PROMPT, DEFAULT_PROMPT) ?: DEFAULT_PROMPT
+        set(value) = prefs.edit().putString(KEY_CUSTOM_PROMPT, value.trim()).apply()
+
+    fun resetPromptToDefault() {
+        prefs.edit().remove(KEY_CUSTOM_PROMPT).apply()
+    }
+
     companion object {
         private const val PREFS_NAME = "grammar_ai_prefs"
         private const val KEY_API_KEY = "gemini_api_key"
+        private const val KEY_CUSTOM_PROMPT = "custom_prompt"
+
+        val DEFAULT_PROMPT = """
+You are an expert language and grammar tutor specializing in Dutch (Nederlands) and English.
+The user has selected the following text:
+\"\"\"
+{text}
+\"\"\"
+
+Task:
+1. Automatically detect whether the text is Dutch or English (or a mix).
+2. Fix all grammatical mistakes, spelling errors, incorrect articles (de/het in Dutch), word order (Dutch V2 rule, inversion), verb conjugations, and phrasing to sound completely natural.
+3. Output your response strictly as a JSON object with exactly two string fields:
+{
+  "correctedText": "the corrected text only",
+  "explanation": "brief bullet points explaining what was changed and the grammar rules behind it (in Dutch/English/Persian)"
+}
+Do not add any explanations outside the JSON object.
+        """.trimIndent()
     }
 }
-

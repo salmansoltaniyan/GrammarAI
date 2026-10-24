@@ -27,6 +27,7 @@ class MainActivity : AppCompatActivity() {
         prefs = PreferencesManager(this)
 
         setupApiKeySection()
+        setupPromptSection()
         setupTestSection()
     }
 
@@ -70,6 +71,28 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun setupPromptSection() {
+        binding.etPrompt.setText(prefs.customPrompt)
+
+        binding.btnSavePrompt.setOnClickListener {
+            val prompt = binding.etPrompt.text?.toString()?.trim() ?: ""
+            if (prompt.isBlank()) {
+                binding.tilPrompt.error = "Prompt cannot be empty"
+                return@setOnClickListener
+            }
+            binding.tilPrompt.error = null
+            prefs.customPrompt = prompt
+            Toast.makeText(this, "Prompt saved successfully!", Toast.LENGTH_SHORT).show()
+        }
+
+        binding.btnResetPrompt.setOnClickListener {
+            prefs.resetPromptToDefault()
+            binding.etPrompt.setText(PreferencesManager.DEFAULT_PROMPT)
+            binding.tilPrompt.error = null
+            Toast.makeText(this, "Reset to default prompt!", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     private fun setupTestSection() {
         binding.btnTest.setOnClickListener {
             val text = binding.etTestText.text?.toString()?.trim() ?: ""
@@ -94,7 +117,7 @@ class MainActivity : AppCompatActivity() {
         binding.btnTest.isEnabled = false
 
         lifecycleScope.launch {
-            val result = geminiService.checkGrammar(text, prefs.apiKey)
+            val result = geminiService.checkGrammar(text, prefs.apiKey, prefs.customPrompt)
             binding.pbLoading.visibility = View.GONE
             binding.btnTest.isEnabled = true
 

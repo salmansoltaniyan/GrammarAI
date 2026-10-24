@@ -96,7 +96,7 @@ class ProcessTextActivity : AppCompatActivity() {
         binding.layoutError.visibility = View.GONE
 
         lifecycleScope.launch {
-            val result = geminiService.checkGrammar(originalText, prefs.apiKey)
+            val result = geminiService.checkGrammar(originalText, prefs.apiKey, prefs.customPrompt)
             binding.layoutLoading.visibility = View.GONE
 
             result.onSuccess { data ->
