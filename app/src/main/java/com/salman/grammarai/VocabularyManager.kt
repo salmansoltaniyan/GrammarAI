@@ -69,3 +69,4 @@ class VocabularyManager(private val context: Context) {
         }
     }
 }
+

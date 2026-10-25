@@ -10,6 +10,6 @@
     <color name="text_secondary">#64748B</color>
     <color name="border">#E2E8F0</color>
     <color name="success">#10B981</color>
+    <color name="warning">#F59E0B</color>
     <color name="error">#EF4444</color>
 </resources>
-

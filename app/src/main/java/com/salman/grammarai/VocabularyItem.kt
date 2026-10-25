@@ -6,3 +6,4 @@ data class VocabularyItem(
     val phraseMeaningFa: String,
     val sentenceMeaningFa: String
 )
+
