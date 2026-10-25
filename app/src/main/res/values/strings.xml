@@ -21,5 +21,11 @@
     <string name="btn_close">Close</string>
     <string name="copied_to_clipboard">Copied to clipboard!</string>
     <string name="analyzing">Analyzing with Gemini AI...</string>
+    <string name="accessibility_service_desc">Enables a floating Grammar AI assistant bubble over text fields in any app to check and replace Dutch/English text instantly.</string>
+    <string name="floating_bubble_title">🎈 Floating Assistant (Grammarly Mode)</string>
+    <string name="floating_bubble_desc">Displays a floating AI bubble when typing in any app (WhatsApp, Telegram, Instagram, etc.). Tap the bubble to fix and replace text instantly!</string>
+    <string name="btn_enable_floating">Configure Permissions</string>
+    <string name="status_floating_active">Status: Active ✓</string>
+    <string name="status_floating_inactive">Status: Inactive (Permissions Needed)</string>
 </resources>
 

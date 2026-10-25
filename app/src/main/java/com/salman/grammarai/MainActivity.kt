@@ -2,8 +2,12 @@ package com.salman.grammarai
 
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
+import android.provider.Settings
 import android.view.View
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
@@ -41,8 +45,14 @@ class MainActivity : AppCompatActivity() {
 
         setupApiKeySection()
         setupModelSection()
+        setupFloatingSection()
         setupPromptSection()
         setupTestSection()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        updateFloatingStatus()
     }
 
     private fun setupApiKeySection() {
@@ -77,7 +87,6 @@ class MainActivity : AppCompatActivity() {
         }
         binding.spModel.adapter = adapter
 
-        // Pre-select saved model
         val currentModelId = prefs.selectedModel
         val selectedIndex = availableModels.indexOfFirst { it.modelId == currentModelId }
         if (selectedIndex >= 0) {
@@ -95,6 +104,59 @@ class MainActivity : AppCompatActivity() {
 
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
+    }
+
+    private fun setupFloatingSection() {
+        updateFloatingStatus()
+
+        binding.btnConfigureFloating.setOnClickListener {
+            // First check Overlay permission
+            if (!Settings.canDrawOverlays(this)) {
+                Toast.makeText(this, "Please allow 'Display over other apps'", Toast.LENGTH_LONG).show()
+                val intent = Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:$packageName")
+                )
+                startActivity(intent)
+                return@setOnClickListener
+            }
+
+            // Next check Accessibility permission
+            if (!isAccessibilityServiceEnabled()) {
+                Toast.makeText(this, "Please enable 'Grammar AI' in Accessibility", Toast.LENGTH_LONG).show()
+                val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                startActivity(intent)
+                return@setOnClickListener
+            }
+
+            Toast.makeText(this, "Floating Assistant is already active!", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun updateFloatingStatus() {
+        val hasOverlay = Settings.canDrawOverlays(this)
+        val hasAccess = isAccessibilityServiceEnabled()
+
+        if (hasOverlay && hasAccess) {
+            binding.tvFloatingStatus.text = getString(R.string.status_floating_active)
+            binding.tvFloatingStatus.setTextColor(ContextCompat.getColor(this, R.color.success))
+            binding.btnConfigureFloating.text = "Configured ✓"
+        } else {
+            val missing = when {
+                !hasOverlay && !hasAccess -> "Overlay & Accessibility Needed"
+                !hasOverlay -> "Overlay Permission Needed"
+                else -> "Accessibility Service Needed"
+            }
+            binding.tvFloatingStatus.text = "Status: Inactive ($missing)"
+            binding.tvFloatingStatus.setTextColor(ContextCompat.getColor(this, R.color.error))
+            binding.btnConfigureFloating.text = getString(R.string.btn_enable_floating)
+        }
+    }
+
+    private fun isAccessibilityServiceEnabled(): Boolean {
+        val expected = ComponentName(this, GrammarAccessibilityService::class.java).flattenToString()
+        val enabledServices = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES) ?: ""
+        return enabledServices.contains(expected)
     }
 
     private fun verifyApiKey(apiKey: String) {
