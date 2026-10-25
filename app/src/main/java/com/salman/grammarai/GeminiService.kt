@@ -16,7 +16,8 @@ import java.util.concurrent.TimeUnit
 
 data class GrammarResult(
     val correctedText: String,
-    val explanation: String
+    val explanation: String,
+    val vocabularyItem: VocabularyItem? = null
 )
 
 class GeminiService {
@@ -50,63 +51,45 @@ class GeminiService {
                     return@withContext Result.failure(Exception(errorMsg))
                 }
 
-                val root = JSONObject(body)
-                val modelsArray = root.optJSONArray("models")
-                    ?: return@withContext Result.failure(Exception("No models found in Google response"))
-
-                val supportedList = mutableListOf<String>()
-                for (i in 0 until modelsArray.length()) {
-                    val m = modelsArray.getJSONObject(i)
-                    val name = m.getString("name")
-                    val methods = m.optJSONArray("supportedGenerationMethods")
-                    var supportsGenerate = false
-                    if (methods != null) {
-                        for (j in 0 until methods.length()) {
-                            if (methods.getString(j) == "generateContent") {
-                                supportsGenerate = true
-                                break
-                            }
-                        }
+                val modelsJson = JSONObject(body).getJSONArray("models")
+                val availableModels = mutableListOf<String>()
+                for (i in 0 until modelsJson.length()) {
+                    val m = modelsJson.getJSONObject(i)
+                    val name = m.getString("name").removePrefix("models/")
+                    val methods = m.optJSONArray("supportedGenerationMethods") ?: JSONArray()
+                    var canGenerate = false
+                    for (j in 0 until methods.length()) {
+                        if (methods.getString(j) == "generateContent") canGenerate = true
                     }
-                    if (supportsGenerate) {
-                        supportedList.add(name)
+                    if (canGenerate) {
+                        availableModels.add(name)
                     }
                 }
 
-                if (supportedList.isEmpty()) {
-                    return@withContext Result.failure(Exception("No model supporting generateContent found for this key."))
-                }
+                Log.d(TAG, "Available models on user key: $availableModels")
 
-                // High-quota, ultra-fast Flash Lite models prioritized first!
+                // Preferred priority list (prioritizing 3.5 Flash Lite with 500 req/day)
                 val priorityList = listOf(
                     "gemini-3.5-flash-lite",
                     "gemini-3.1-flash-lite",
-                    "gemini-3.6-flash",
-                    "gemini-3.8-flash"
+                    "gemini-2.5-flash",
+                    "gemini-2.5-flash-lite",
+                    "gemini-2.0-flash",
+                    "gemini-2.0-flash-lite",
+                    "gemini-1.5-flash"
                 )
 
-                var chosen: String? = null
-                for (priority in priorityList) {
-                    chosen = supportedList.firstOrNull { it.contains(priority, ignoreCase = true) }
-                    if (chosen != null) break
-                }
+                val selected = priorityList.firstOrNull { it in availableModels }
+                    ?: availableModels.firstOrNull { it.contains("flash", ignoreCase = true) }
+                    ?: availableModels.firstOrNull()
+                    ?: PreferencesManager.DEFAULT_MODEL
 
-                if (chosen == null) {
-                    chosen = supportedList.firstOrNull { it.contains("flash", ignoreCase = true) && !it.contains("2.5") && !it.contains("1.5") }
-                        ?: supportedList.firstOrNull { it.contains("flash", ignoreCase = true) }
-                        ?: supportedList.firstOrNull { it.contains("gemini", ignoreCase = true) }
-                        ?: supportedList.first()
-                }
-
-                cachedDiscoveredModel = chosen
-                Log.d(TAG, "Discovered active model: $chosen")
-                Result.success(chosen)
+                cachedDiscoveredModel = selected
+                Log.i(TAG, "Selected best model: $selected")
+                Result.success(selected)
             } catch (e: Exception) {
-                Log.e(TAG, "Error discovering model", e)
-                val friendlyError = if (e is SocketTimeoutException) {
-                    Exception("Connection timed out while checking models.\nPlease check your VPN / Internet connection.")
-                } else e
-                Result.failure(friendlyError)
+                Log.e(TAG, "Error discovering models: ${e.message}")
+                Result.failure(e)
             }
         }
     }
@@ -114,37 +97,49 @@ class GeminiService {
     suspend fun checkGrammar(
         text: String,
         apiKey: String,
-        promptTemplate: String = PreferencesManager.DEFAULT_PROMPT,
+        promptTemplate: String,
         preferredModel: String = PreferencesManager.DEFAULT_MODEL,
         isRetry: Boolean = false
     ): Result<GrammarResult> {
         return withContext(Dispatchers.IO) {
             try {
-                val finalPrompt = if (promptTemplate.contains("{text}")) {
-                    promptTemplate.replace("{text}", text)
-                } else {
-                    "$promptTemplate\n\nText:\n$text"
+                if (apiKey.isBlank()) {
+                    return@withContext Result.failure(
+                        Exception("Gemini API key is missing. Please set it in Settings.")
+                    )
                 }
 
-                val partObj = JSONObject().put("text", finalPrompt)
-                val partsArray = JSONArray().put(partObj)
-                val contentObj = JSONObject().put("parts", partsArray)
-                val contentsArray = JSONArray().put(contentObj)
-                val requestJson = JSONObject().put("contents", contentsArray)
+                val normalizedModel = when {
+                    preferredModel.isNotBlank() -> preferredModel
+                    cachedDiscoveredModel != null -> cachedDiscoveredModel!!
+                    else -> PreferencesManager.DEFAULT_MODEL
+                }
 
-                // High-speed config: direct JSON output
-                val generationConfig = JSONObject()
-                    .put("temperature", 0.1)
-                    .put("maxOutputTokens", 800)
-                    .put("responseMimeType", "application/json")
+                val url = "https://generativelanguage.googleapis.com/v1beta/models/$normalizedModel:generateContent?key=$apiKey"
 
-                requestJson.put("generationConfig", generationConfig)
+                val prompt = promptTemplate.replace("{text}", text)
+
+                val payload = JSONObject().apply {
+                    put("contents", JSONArray().apply {
+                        put(JSONObject().apply {
+                            put("parts", JSONArray().apply {
+                                put(JSONObject().apply {
+                                    put("text", prompt)
+                                })
+                            })
+                        })
+                    })
+                    put("generationConfig", JSONObject().apply {
+                        put("temperature", 0.2)
+                        put("responseMimeType", "application/json")
+                        put("thinkingConfig", JSONObject().apply {
+                            put("thinkingLevel", "low")
+                        })
+                    })
+                }
 
                 val mediaType = "application/json; charset=utf-8".toMediaType()
-                val requestBody = requestJson.toString().toRequestBody(mediaType)
-
-                val normalizedModel = preferredModel.removePrefix("models/")
-                val url = "https://generativelanguage.googleapis.com/v1beta/models/$normalizedModel:generateContent?key=$apiKey"
+                val requestBody = payload.toString().toRequestBody(mediaType)
 
                 val request = Request.Builder()
                     .url(url)
@@ -202,14 +197,47 @@ class GeminiService {
                 val cleanedJson = cleanJsonOutput(rawText)
                 val parsed = try {
                     val resJson = JSONObject(cleanedJson)
+                    val corrected = resJson.optString("correctedText", text).ifBlank {
+                        resJson.optString("corrected_text", text)
+                    }
+                    val explanation = resJson.optString("explanation", "Grammar check completed.")
+
+                    var vocabItem: VocabularyItem? = null
+                    val vocabJson = resJson.optJSONObject("vocabulary_item") ?: resJson.optJSONObject("vocabularyItem")
+                    if (vocabJson != null) {
+                        val targetPhrase = vocabJson.optString("target_phrase").ifBlank {
+                            vocabJson.optString("targetPhrase", "")
+                        }
+                        val correctedSent = vocabJson.optString("corrected_sentence").ifBlank {
+                            vocabJson.optString("correctedSentence", corrected)
+                        }
+                        val phraseFa = vocabJson.optString("phrase_meaning_fa").ifBlank {
+                            vocabJson.optString("phraseMeaningFa", "")
+                        }
+                        val sentenceFa = vocabJson.optString("sentence_meaning_fa").ifBlank {
+                            vocabJson.optString("sentenceMeaningFa", "")
+                        }
+
+                        if (targetPhrase.isNotBlank()) {
+                            vocabItem = VocabularyItem(
+                                targetPhrase = targetPhrase,
+                                correctedSentence = correctedSent,
+                                phraseMeaningFa = phraseFa,
+                                sentenceMeaningFa = sentenceFa
+                            )
+                        }
+                    }
+
                     GrammarResult(
-                        correctedText = resJson.optString("correctedText", text),
-                        explanation = resJson.optString("explanation", "Grammar correction completed.")
+                        correctedText = corrected,
+                        explanation = explanation,
+                        vocabularyItem = vocabItem
                     )
                 } catch (e: Exception) {
                     GrammarResult(
                         correctedText = rawText,
-                        explanation = "Direct AI output."
+                        explanation = "Direct AI output.",
+                        vocabularyItem = null
                     )
                 }
 

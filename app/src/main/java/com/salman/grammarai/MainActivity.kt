@@ -12,6 +12,7 @@ import android.view.View
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
@@ -24,6 +25,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
     private lateinit var prefs: PreferencesManager
     private val geminiService = GeminiService()
+    private val ankiService = AnkiService()
 
     private val availableModels = listOf(
         ModelOption("Gemini 3.5 Flash Lite (500 req/day - Ultra Fast ⚡)", "gemini-3.5-flash-lite"),
@@ -36,6 +38,17 @@ class MainActivity : AppCompatActivity() {
         override fun toString(): String = displayName
     }
 
+    private val ankiPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        updateAnkiStatus()
+        if (isGranted) {
+            Toast.makeText(this, "AnkiDroid permission granted!", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(this, "Permission denied. Anki cards cannot be saved.", Toast.LENGTH_LONG).show()
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
@@ -46,6 +59,8 @@ class MainActivity : AppCompatActivity() {
         setupApiKeySection()
         setupModelSection()
         setupFloatingSection()
+        setupAnkiSection()
+        setupGoogleSheetsSection()
         setupPromptSection()
         setupTestSection()
     }
@@ -53,6 +68,7 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         updateFloatingStatus()
+        updateAnkiStatus()
     }
 
     private fun setupApiKeySection() {
@@ -159,6 +175,46 @@ class MainActivity : AppCompatActivity() {
         return enabledServices.contains(expected)
     }
 
+    private fun setupAnkiSection() {
+        binding.etAnkiDeckName.setText(prefs.ankiDeckName)
+        binding.btnSaveAnkiDeck.setOnClickListener {
+            val deck = binding.etAnkiDeckName.text?.toString()?.trim() ?: "Dutch"
+            prefs.ankiDeckName = deck
+            Toast.makeText(this, "Target deck saved: $deck", Toast.LENGTH_SHORT).show()
+        }
+
+        binding.btnGrantAnkiPermission.setOnClickListener {
+            ankiPermissionLauncher.launch(AnkiService.PERMISSION_ANKI)
+        }
+
+        updateAnkiStatus()
+    }
+
+    private fun updateAnkiStatus() {
+        if (!ankiService.isAnkiDroidInstalled(this)) {
+            binding.tvAnkiStatus.text = "Status: AnkiDroid Not Found ⚠️ (Please install AnkiDroid app)"
+            binding.tvAnkiStatus.setTextColor(ContextCompat.getColor(this, R.color.warning))
+            binding.btnGrantAnkiPermission.visibility = View.GONE
+        } else if (!ankiService.hasPermission(this)) {
+            binding.tvAnkiStatus.text = "Status: Permission Needed ⚠️"
+            binding.tvAnkiStatus.setTextColor(ContextCompat.getColor(this, R.color.error))
+            binding.btnGrantAnkiPermission.visibility = View.VISIBLE
+        } else {
+            binding.tvAnkiStatus.text = "Status: Connected to AnkiDroid ✓ (Target Deck: ${prefs.ankiDeckName})"
+            binding.tvAnkiStatus.setTextColor(ContextCompat.getColor(this, R.color.success))
+            binding.btnGrantAnkiPermission.visibility = View.GONE
+        }
+    }
+
+    private fun setupGoogleSheetsSection() {
+        binding.etGoogleSheetsUrl.setText(prefs.googleSheetsUrl)
+        binding.btnSaveGoogleSheets.setOnClickListener {
+            val url = binding.etGoogleSheetsUrl.text?.toString()?.trim() ?: ""
+            prefs.googleSheetsUrl = url
+            Toast.makeText(this, "Google Sheets Webhook URL saved!", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     private fun verifyApiKey(apiKey: String) {
         binding.tvKeyStatus.text = "Checking API Key with Google..."
         binding.tvKeyStatus.setTextColor(ContextCompat.getColor(this, R.color.text_secondary))
@@ -230,7 +286,14 @@ class MainActivity : AppCompatActivity() {
             result.onSuccess { data ->
                 binding.layoutTestResult.visibility = View.VISIBLE
                 binding.tvTestCorrected.text = data.correctedText
-                binding.tvTestExplanation.text = data.explanation
+                var fullExplanation = data.explanation
+                if (data.vocabularyItem != null) {
+                    fullExplanation += "\n\n💡 Extracted Vocabulary:\n" +
+                            "• Target Phrase: ${data.vocabularyItem.targetPhrase}\n" +
+                            "• Meaning (FA): ${data.vocabularyItem.phraseMeaningFa}\n" +
+                            "• Sentence (FA): ${data.vocabularyItem.sentenceMeaningFa}"
+                }
+                binding.tvTestExplanation.text = fullExplanation
             }.onFailure { error ->
                 showErrorDialog("Gemini API Error", error.localizedMessage ?: "Unknown error")
             }

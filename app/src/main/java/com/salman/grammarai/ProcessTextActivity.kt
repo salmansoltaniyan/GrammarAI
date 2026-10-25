@@ -17,6 +17,7 @@ class ProcessTextActivity : AppCompatActivity() {
     private lateinit var binding: ActivityProcessTextBinding
     private lateinit var prefs: PreferencesManager
     private val geminiService = GeminiService()
+    private lateinit var vocabManager: VocabularyManager
 
     private var originalText: String = ""
     private var correctedText: String = ""
@@ -33,6 +34,7 @@ class ProcessTextActivity : AppCompatActivity() {
         window.setLayout(width, android.view.ViewGroup.LayoutParams.WRAP_CONTENT)
 
         prefs = PreferencesManager(this)
+        vocabManager = VocabularyManager(this)
 
         originalText = intent.getCharSequenceExtra(Intent.EXTRA_PROCESS_TEXT)?.toString() ?: ""
         isReadOnly = intent.getBooleanExtra(Intent.EXTRA_PROCESS_TEXT_READONLY, false)
@@ -104,6 +106,26 @@ class ProcessTextActivity : AppCompatActivity() {
                 binding.layoutResult.visibility = View.VISIBLE
                 binding.tvCorrectedText.text = data.correctedText
                 binding.tvExplanation.text = data.explanation
+
+                // Vocabulary Card
+                val vocab = data.vocabularyItem
+                if (vocab != null && vocab.targetPhrase.isNotBlank()) {
+                    binding.layoutProcessVocab.visibility = View.VISIBLE
+                    binding.tvProcessVocabPreview.text = "${vocab.targetPhrase} ➔ ${vocab.phraseMeaningFa}"
+                    binding.btnProcessSaveVocab.isEnabled = true
+                    binding.btnProcessSaveVocab.text = "📥 Save to Anki & Google Sheets"
+                    binding.btnProcessSaveVocab.setOnClickListener {
+                        binding.btnProcessSaveVocab.isEnabled = false
+                        binding.btnProcessSaveVocab.text = "Saving..."
+                        lifecycleScope.launch {
+                            val res = vocabManager.saveItem(vocab)
+                            binding.btnProcessSaveVocab.text = "✓ " + res.message
+                            Toast.makeText(this@ProcessTextActivity, res.message, Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                } else {
+                    binding.layoutProcessVocab.visibility = View.GONE
+                }
             }.onFailure { error ->
                 showError("Gemini Error: ${error.localizedMessage}")
             }
@@ -117,4 +139,3 @@ class ProcessTextActivity : AppCompatActivity() {
         binding.tvErrorMessage.text = message
     }
 }
-

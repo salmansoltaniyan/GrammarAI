@@ -240,6 +240,9 @@ class GrammarAccessibilityService : AccessibilityService() {
         val tvExplanation = root.findViewById<TextView>(R.id.tvFloatingExplanation)
         val btnReplace = root.findViewById<MaterialButton>(R.id.btnFloatingReplace)
         val btnCopy = root.findViewById<MaterialButton>(R.id.btnFloatingCopy)
+        val layoutVocab = root.findViewById<LinearLayout>(R.id.layoutFloatingVocab)
+        val tvVocabPreview = root.findViewById<TextView>(R.id.tvFloatingVocabPreview)
+        val btnSaveVocab = root.findViewById<MaterialButton>(R.id.btnFloatingSaveVocab)
 
         btnClose.setOnClickListener {
             removeDialogView()
@@ -276,6 +279,26 @@ class GrammarAccessibilityService : AccessibilityService() {
                 layoutResult.visibility = View.VISIBLE
                 tvCorrected.text = data.correctedText
                 tvExplanation.text = data.explanation
+
+                // Vocabulary Card
+                val vocab = data.vocabularyItem
+                if (vocab != null && vocab.targetPhrase.isNotBlank()) {
+                    layoutVocab.visibility = View.VISIBLE
+                    tvVocabPreview.text = "${vocab.targetPhrase} ➔ ${vocab.phraseMeaningFa}"
+                    btnSaveVocab.isEnabled = true
+                    btnSaveVocab.text = "📥 Save to Anki & Google Sheets"
+                    btnSaveVocab.setOnClickListener {
+                        btnSaveVocab.isEnabled = false
+                        btnSaveVocab.text = "Saving..."
+                        serviceScope.launch {
+                            val res = VocabularyManager(this@GrammarAccessibilityService).saveItem(vocab)
+                            btnSaveVocab.text = "✓ " + res.message
+                            Toast.makeText(this@GrammarAccessibilityService, res.message, Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                } else {
+                    layoutVocab.visibility = View.GONE
+                }
 
                 btnCopy.setOnClickListener {
                     val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
