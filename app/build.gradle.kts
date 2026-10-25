@@ -11,7 +11,7 @@ android {
         applicationId = "com.salman.grammarai"
         minSdk = 24
         targetSdk = 34
-        versionCode = 8
+        versionCode = 9
         versionName = "1.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

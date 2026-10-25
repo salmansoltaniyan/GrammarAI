@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.util.Log
+import android.view.ContextThemeWrapper
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MotionEvent
@@ -98,7 +99,8 @@ class GrammarAccessibilityService : AccessibilityService() {
         if (!canDrawOverlays()) return
         if (bubbleView != null) return // Already showing
 
-        val inflater = LayoutInflater.from(this)
+        val themedContext = ContextThemeWrapper(this, R.style.Theme_GrammarAI)
+        val inflater = LayoutInflater.from(themedContext)
         bubbleView = inflater.inflate(R.layout.layout_floating_bubble, null)
 
         val layoutType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -205,7 +207,8 @@ class GrammarAccessibilityService : AccessibilityService() {
         if (!canDrawOverlays()) return
         removeDialogView()
 
-        val inflater = LayoutInflater.from(this)
+        val themedContext = ContextThemeWrapper(this, R.style.Theme_GrammarAI)
+        val inflater = LayoutInflater.from(themedContext)
         dialogView = inflater.inflate(R.layout.layout_floating_dialog, null)
 
         val layoutType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -240,6 +243,15 @@ class GrammarAccessibilityService : AccessibilityService() {
 
         btnClose.setOnClickListener {
             removeDialogView()
+        }
+
+        root.setOnTouchListener { _, motionEvent ->
+            if (motionEvent.action == MotionEvent.ACTION_OUTSIDE) {
+                removeDialogView()
+                true
+            } else {
+                false
+            }
         }
 
         try {
