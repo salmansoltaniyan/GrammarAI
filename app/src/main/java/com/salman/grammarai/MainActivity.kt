@@ -187,6 +187,10 @@ class MainActivity : AppCompatActivity() {
             ankiPermissionLauncher.launch(AnkiService.PERMISSION_ANKI)
         }
 
+        binding.btnTestAnki.setOnClickListener {
+            runAnkiDiagnostics()
+        }
+
         updateAnkiStatus()
     }
 
@@ -204,6 +208,63 @@ class MainActivity : AppCompatActivity() {
             binding.tvAnkiStatus.setTextColor(ContextCompat.getColor(this, R.color.success))
             binding.btnGrantAnkiPermission.visibility = View.GONE
         }
+    }
+
+    private fun runAnkiDiagnostics() {
+        binding.tvAnkiDiagnostic.visibility = View.VISIBLE
+        val sb = StringBuilder()
+        sb.append("=== AnkiDroid Diagnostic Report ===\n")
+
+        // 1. Installation check
+        val isInstalled = ankiService.isAnkiDroidInstalled(this)
+        if (!isInstalled) {
+            sb.append("❌ AnkiDroid app is NOT installed on this device.\nPlease install AnkiDroid from Google Play.")
+            binding.tvAnkiDiagnostic.text = sb.toString()
+            return
+        }
+        sb.append("✓ AnkiDroid package found\n")
+
+        // 2. Permission check
+        val hasPerm = ankiService.hasPermission(this)
+        if (!hasPerm) {
+            sb.append("❌ Permission NOT granted: Requesting permission now...\n")
+            binding.tvAnkiDiagnostic.text = sb.toString()
+            ankiPermissionLauncher.launch(AnkiService.PERMISSION_ANKI)
+            return
+        }
+        sb.append("✓ Database permission granted\n")
+
+        // 3. Decks query check
+        val decks = ankiService.getDeckList(this)
+        if (decks.isEmpty()) {
+            sb.append("⚠️ Could not retrieve decks from AnkiDroid.\n")
+            sb.append("👉 Important: Inside AnkiDroid app, go to:\nSettings -> Advanced -> Enable 'AnkiDroid API'\n")
+            binding.tvAnkiDiagnostic.text = sb.toString()
+            return
+        }
+        sb.append("✓ Found ${decks.size} deck(s): ${decks.values.take(5).joinToString(", ")}\n")
+
+        // 4. Test note insertion
+        val testDeck = prefs.ankiDeckName.ifBlank { "Dutch" }
+        sb.append("Testing card creation in deck '$testDeck'...\n")
+
+        val testItem = VocabularyItem(
+            targetPhrase = "het begin (Test)",
+            correctedSentence = "Dit is een testzin van Grammar AI.",
+            phraseMeaningFa = "شروع / آغاز",
+            sentenceMeaningFa = "این یک جمله آزمایشی از گرمر هوش مصنوعی است."
+        )
+
+        val res = ankiService.addReversedFlashcard(this, testItem, testDeck)
+        if (res.isSuccess) {
+            val noteId = res.getOrNull()
+            sb.append("🎉 SUCCESS! 2-Way Flashcard added!\nNote ID: $noteId in deck '$testDeck'\nOpen AnkiDroid to review your new cards.")
+        } else {
+            sb.append("❌ Failed to add note: ${res.exceptionOrNull()?.localizedMessage}\n")
+            sb.append("👉 Check that 'AnkiDroid API' is enabled in AnkiDroid -> Settings -> Advanced.")
+        }
+
+        binding.tvAnkiDiagnostic.text = sb.toString()
     }
 
     private fun setupGoogleSheetsSection() {

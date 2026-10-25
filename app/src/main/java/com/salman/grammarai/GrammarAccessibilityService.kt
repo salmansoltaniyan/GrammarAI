@@ -292,8 +292,9 @@ class GrammarAccessibilityService : AccessibilityService() {
                         btnSaveVocab.text = "Saving..."
                         serviceScope.launch {
                             val res = VocabularyManager(this@GrammarAccessibilityService).saveItem(vocab)
-                            btnSaveVocab.text = "✓ " + res.message
-                            Toast.makeText(this@GrammarAccessibilityService, res.message, Toast.LENGTH_SHORT).show()
+                            val prefix = if (res.ankiSuccess || res.sheetsSuccess) "✓ " else "⚠️ "
+                            btnSaveVocab.text = prefix + res.message
+                            Toast.makeText(this@GrammarAccessibilityService, res.message, Toast.LENGTH_LONG).show()
                         }
                     }
                 } else {

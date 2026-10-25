@@ -119,8 +119,13 @@ class ProcessTextActivity : AppCompatActivity() {
                         binding.btnProcessSaveVocab.text = "Saving..."
                         lifecycleScope.launch {
                             val res = vocabManager.saveItem(vocab)
-                            binding.btnProcessSaveVocab.text = "✓ " + res.message
-                            Toast.makeText(this@ProcessTextActivity, res.message, Toast.LENGTH_SHORT).show()
+                            val prefix = if (res.ankiSuccess || res.sheetsSuccess) "✓ " else "⚠️ "
+                            binding.btnProcessSaveVocab.text = prefix + res.message
+                            Toast.makeText(this@ProcessTextActivity, res.message, Toast.LENGTH_LONG).show()
+                            if (!res.ankiSuccess && res.message.contains("Permission", ignoreCase = true)) {
+                                val intent = Intent(this@ProcessTextActivity, MainActivity::class.java)
+                                startActivity(intent)
+                            }
                         }
                     }
                 } else {

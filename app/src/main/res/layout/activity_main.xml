@@ -356,6 +356,27 @@
                     android:text="Save Anki Deck Preference"
                     android:layout_marginTop="10dp"
                     app:cornerRadius="10dp" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnTestAnki"
+                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:text="🧪 Test AnkiDroid Connection"
+                    android:layout_marginTop="8dp"
+                    app:cornerRadius="10dp" />
+
+                <TextView
+                    android:id="@+id/tvAnkiDiagnostic"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@color/surface_variant"
+                    android:padding="10dp"
+                    android:layout_marginTop="8dp"
+                    android:textSize="12sp"
+                    android:textColor="@color/text_primary"
+                    android:visibility="gone"
+                    android:textIsSelectable="true" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
