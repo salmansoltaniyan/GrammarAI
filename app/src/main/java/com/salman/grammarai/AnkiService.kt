@@ -73,21 +73,44 @@ class AnkiService {
             val models = api.modelList ?: emptyMap()
             var targetModelId: Long? = null
 
+            // First check if our dedicated 2-way model already exists
             for ((id, name) in models) {
-                if (name.contains("reversed", ignoreCase = true) || name.contains("2-way", ignoreCase = true)) {
+                if (name == "GrammarAI 2-Way") {
                     targetModelId = id
                     break
                 }
             }
 
+            // If not found, create our dedicated 2-way model
             if (targetModelId == null) {
-                // Create custom standard 2-card model
-                targetModelId = api.addNewBasic2Model("GrammarAI 2-Way")
+                try {
+                    targetModelId = api.addNewBasic2Model("GrammarAI 2-Way")
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed creating GrammarAI 2-Way model", e)
+                }
+            }
+
+            // Fallback: look for any model with reversed / 2-way
+            if (targetModelId == null) {
+                for ((id, name) in models) {
+                    if (name.contains("reversed", ignoreCase = true) || name.contains("2-way", ignoreCase = true)) {
+                        targetModelId = id
+                        break
+                    }
+                }
+            }
+
+            // Fallback: create basic model or use first available
+            if (targetModelId == null) {
+                try {
+                    targetModelId = api.addNewBasicModel("GrammarAI Basic")
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed creating basic model", e)
+                }
             }
 
             if (targetModelId == null) {
-                // Fallback to basic model
-                targetModelId = models.keys.firstOrNull() ?: api.addNewBasicModel("GrammarAI Basic")
+                targetModelId = models.keys.firstOrNull()
             }
 
             if (targetModelId == null) {
@@ -113,10 +136,26 @@ class AnkiService {
                 </div>
             """.trimIndent()
 
+            // Dynamically match the exact number of fields expected by AnkiDroid
+            val expectedFields = try {
+                api.getFieldList(targetModelId) ?: emptyArray()
+            } catch (e: Exception) {
+                emptyArray()
+            }
+            val fieldCount = if (expectedFields.isNotEmpty()) expectedFields.size else 2
+
+            val noteFields = Array(fieldCount) { i ->
+                when (i) {
+                    0 -> front
+                    1 -> back
+                    else -> ""
+                }
+            }
+
             val noteId = api.addNote(
                 targetModelId,
                 targetDeckId,
-                arrayOf(front, back),
+                noteFields,
                 setOf("GrammarAI", "Dutch")
             )
 
