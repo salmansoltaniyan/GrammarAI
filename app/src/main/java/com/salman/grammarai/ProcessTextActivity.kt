@@ -5,11 +5,13 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.view.LayoutInflater
 import android.view.View
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.salman.grammarai.databinding.ActivityProcessTextBinding
+import com.salman.grammarai.databinding.ItemVocabSelectionBinding
 import kotlinx.coroutines.launch
 
 class ProcessTextActivity : AppCompatActivity() {
@@ -98,7 +100,13 @@ class ProcessTextActivity : AppCompatActivity() {
         binding.layoutError.visibility = View.GONE
 
         lifecycleScope.launch {
-            val result = geminiService.checkGrammar(originalText, prefs.apiKey, prefs.customPrompt, prefs.selectedModel)
+            val result = geminiService.checkGrammar(
+                text = originalText,
+                apiKey = prefs.apiKey,
+                promptTemplate = prefs.customPrompt,
+                preferredModel = prefs.selectedModel,
+                sentenceScope = prefs.sentenceScope
+            )
             binding.layoutLoading.visibility = View.GONE
 
             result.onSuccess { data ->
@@ -107,32 +115,74 @@ class ProcessTextActivity : AppCompatActivity() {
                 binding.tvCorrectedText.text = data.correctedText
                 binding.tvExplanation.text = data.explanation
 
-                // Vocabulary Card
-                val vocab = data.vocabularyItem
-                if (vocab != null && vocab.targetPhrase.isNotBlank()) {
-                    binding.layoutProcessVocab.visibility = View.VISIBLE
-                    binding.tvProcessVocabPreview.text = "${vocab.targetPhrase} ➔ ${vocab.phraseMeaningFa}"
-                    binding.btnProcessSaveVocab.isEnabled = true
-                    binding.btnProcessSaveVocab.text = "📥 Save to Anki & Google Sheets"
-                    binding.btnProcessSaveVocab.setOnClickListener {
-                        binding.btnProcessSaveVocab.isEnabled = false
-                        binding.btnProcessSaveVocab.text = "Saving..."
-                        lifecycleScope.launch {
-                            val res = vocabManager.saveItem(vocab)
-                            val prefix = if (res.ankiSuccess || res.sheetsSuccess) "✓ " else "⚠️ "
-                            binding.btnProcessSaveVocab.text = prefix + res.message
-                            Toast.makeText(this@ProcessTextActivity, res.message, Toast.LENGTH_LONG).show()
-                            if (!res.ankiSuccess && res.message.contains("Permission", ignoreCase = true)) {
-                                val intent = Intent(this@ProcessTextActivity, MainActivity::class.java)
-                                startActivity(intent)
-                            }
-                        }
-                    }
-                } else {
-                    binding.layoutProcessVocab.visibility = View.GONE
-                }
+                // Vocabulary selection (up to 3 items)
+                setupVocabularySection(data.vocabularyItems)
             }.onFailure { error ->
                 showError("Gemini Error: ${error.localizedMessage}")
+            }
+        }
+    }
+
+    private fun setupVocabularySection(items: List<VocabularyItem>) {
+        val container = binding.llProcessVocabContainer
+        container.removeAllViews()
+
+        if (items.isEmpty()) {
+            binding.layoutProcessVocab.visibility = View.GONE
+            return
+        }
+
+        binding.layoutProcessVocab.visibility = View.VISIBLE
+        val selectedItems = items.toMutableSet()
+
+        fun updateSaveButton() {
+            val count = selectedItems.size
+            binding.btnProcessSaveVocab.isEnabled = count > 0
+            binding.btnProcessSaveVocab.text = if (count > 0) {
+                "📥 Save Selected ($count) to Anki & Sheets"
+            } else {
+                "Select items above to save"
+            }
+        }
+
+        val inflater = LayoutInflater.from(this)
+        for (item in items) {
+            val itemBinding = ItemVocabSelectionBinding.inflate(inflater, container, false)
+            itemBinding.tvVocabTitle.text = "${item.targetPhrase} ➔ ${item.phraseMeaningFa}"
+            itemBinding.tvVocabSentence.text = item.correctedSentence
+            itemBinding.cbVocabSelect.isChecked = true
+
+            itemBinding.cbVocabSelect.setOnCheckedChangeListener { _, isChecked ->
+                if (isChecked) {
+                    selectedItems.add(item)
+                } else {
+                    selectedItems.remove(item)
+                }
+                updateSaveButton()
+            }
+
+            container.addView(itemBinding.root)
+        }
+
+        updateSaveButton()
+
+        binding.btnProcessSaveVocab.setOnClickListener {
+            val toSave = selectedItems.toList()
+            if (toSave.isEmpty()) return@setOnClickListener
+
+            binding.btnProcessSaveVocab.isEnabled = false
+            binding.btnProcessSaveVocab.text = "Saving ${toSave.size} item(s)..."
+
+            lifecycleScope.launch {
+                val res = vocabManager.saveItems(toSave)
+                val prefix = if (res.ankiSuccess || res.sheetsSuccess) "✓ " else "⚠️ "
+                binding.btnProcessSaveVocab.text = prefix + res.message
+                Toast.makeText(this@ProcessTextActivity, res.message, Toast.LENGTH_LONG).show()
+
+                if (!res.ankiSuccess && res.message.contains("Permission", ignoreCase = true)) {
+                    val intent = Intent(this@ProcessTextActivity, MainActivity::class.java)
+                    startActivity(intent)
+                }
             }
         }
     }

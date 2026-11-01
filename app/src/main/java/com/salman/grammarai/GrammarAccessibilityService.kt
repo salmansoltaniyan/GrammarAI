@@ -23,6 +23,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import com.google.android.material.button.MaterialButton
+import com.salman.grammarai.databinding.ItemVocabSelectionBinding
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -241,7 +242,7 @@ class GrammarAccessibilityService : AccessibilityService() {
         val btnReplace = root.findViewById<MaterialButton>(R.id.btnFloatingReplace)
         val btnCopy = root.findViewById<MaterialButton>(R.id.btnFloatingCopy)
         val layoutVocab = root.findViewById<LinearLayout>(R.id.layoutFloatingVocab)
-        val tvVocabPreview = root.findViewById<TextView>(R.id.tvFloatingVocabPreview)
+        val llVocabContainer = root.findViewById<LinearLayout>(R.id.llFloatingVocabContainer)
         val btnSaveVocab = root.findViewById<MaterialButton>(R.id.btnFloatingSaveVocab)
 
         btnClose.setOnClickListener {
@@ -270,7 +271,8 @@ class GrammarAccessibilityService : AccessibilityService() {
                 text = text,
                 apiKey = prefs.apiKey,
                 promptTemplate = prefs.customPrompt,
-                preferredModel = prefs.selectedModel
+                preferredModel = prefs.selectedModel,
+                sentenceScope = prefs.sentenceScope
             )
 
             layoutLoading.visibility = View.GONE
@@ -280,18 +282,53 @@ class GrammarAccessibilityService : AccessibilityService() {
                 tvCorrected.text = data.correctedText
                 tvExplanation.text = data.explanation
 
-                // Vocabulary Card
-                val vocab = data.vocabularyItem
-                if (vocab != null && vocab.targetPhrase.isNotBlank()) {
+                // Vocabulary selection (up to 3 items)
+                val vocabItems = data.vocabularyItems
+                llVocabContainer.removeAllViews()
+
+                if (vocabItems.isNotEmpty()) {
                     layoutVocab.visibility = View.VISIBLE
-                    tvVocabPreview.text = "${vocab.targetPhrase} ➔ ${vocab.phraseMeaningFa}"
-                    btnSaveVocab.isEnabled = true
-                    btnSaveVocab.text = "📥 Save to Anki & Google Sheets"
+                    val selectedItems = vocabItems.toMutableSet()
+
+                    fun updateSaveButton() {
+                        val count = selectedItems.size
+                        btnSaveVocab.isEnabled = count > 0
+                        btnSaveVocab.text = if (count > 0) {
+                            "📥 Save Selected ($count) to Anki & Sheets"
+                        } else {
+                            "Select items above to save"
+                        }
+                    }
+
+                    for (item in vocabItems) {
+                        val itemBinding = ItemVocabSelectionBinding.inflate(inflater, llVocabContainer, false)
+                        itemBinding.tvVocabTitle.text = "${item.targetPhrase} ➔ ${item.phraseMeaningFa}"
+                        itemBinding.tvVocabSentence.text = item.correctedSentence
+                        itemBinding.cbVocabSelect.isChecked = true
+
+                        itemBinding.cbVocabSelect.setOnCheckedChangeListener { _, isChecked ->
+                            if (isChecked) {
+                                selectedItems.add(item)
+                            } else {
+                                selectedItems.remove(item)
+                            }
+                            updateSaveButton()
+                        }
+
+                        llVocabContainer.addView(itemBinding.root)
+                    }
+
+                    updateSaveButton()
+
                     btnSaveVocab.setOnClickListener {
+                        val toSave = selectedItems.toList()
+                        if (toSave.isEmpty()) return@setOnClickListener
+
                         btnSaveVocab.isEnabled = false
-                        btnSaveVocab.text = "Saving..."
+                        btnSaveVocab.text = "Saving ${toSave.size} item(s)..."
+
                         serviceScope.launch {
-                            val res = VocabularyManager(this@GrammarAccessibilityService).saveItem(vocab)
+                            val res = VocabularyManager(this@GrammarAccessibilityService).saveItems(toSave)
                             val prefix = if (res.ankiSuccess || res.sheetsSuccess) "✓ " else "⚠️ "
                             btnSaveVocab.text = prefix + res.message
                             Toast.makeText(this@GrammarAccessibilityService, res.message, Toast.LENGTH_LONG).show()

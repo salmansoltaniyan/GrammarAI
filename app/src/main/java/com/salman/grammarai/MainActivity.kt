@@ -38,6 +38,17 @@ class MainActivity : AppCompatActivity() {
         override fun toString(): String = displayName
     }
 
+    data class ScopeOption(val displayName: String, val scopeValue: Int) {
+        override fun toString(): String = displayName
+    }
+
+    private val availableScopes = listOf(
+        ScopeOption("All sentences (Whole text)", 0),
+        ScopeOption("Last sentence only", 1),
+        ScopeOption("Last 2 sentences", 2),
+        ScopeOption("Last 3 sentences", 3)
+    )
+
     private val ankiPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted ->
@@ -58,6 +69,7 @@ class MainActivity : AppCompatActivity() {
 
         setupApiKeySection()
         setupModelSection()
+        setupSentenceScopeSection()
         setupFloatingSection()
         setupAnkiSection()
         setupGoogleSheetsSection()
@@ -115,6 +127,35 @@ class MainActivity : AppCompatActivity() {
                 if (prefs.selectedModel != selected.modelId) {
                     prefs.selectedModel = selected.modelId
                     Toast.makeText(this@MainActivity, "Model switched to: ${selected.modelId}", Toast.LENGTH_SHORT).show()
+                }
+            }
+
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+    }
+
+    private fun setupSentenceScopeSection() {
+        val adapter = ArrayAdapter(
+            this,
+            R.layout.spinner_item,
+            availableScopes
+        ).apply {
+            setDropDownViewResource(R.layout.spinner_dropdown_item)
+        }
+        binding.spSentenceScope.adapter = adapter
+
+        val currentScope = prefs.sentenceScope
+        val selectedIndex = availableScopes.indexOfFirst { it.scopeValue == currentScope }
+        if (selectedIndex >= 0) {
+            binding.spSentenceScope.setSelection(selectedIndex)
+        }
+
+        binding.spSentenceScope.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                val selected = availableScopes[position]
+                if (prefs.sentenceScope != selected.scopeValue) {
+                    prefs.sentenceScope = selected.scopeValue
+                    Toast.makeText(this@MainActivity, "Correction scope: ${selected.displayName}", Toast.LENGTH_SHORT).show()
                 }
             }
 
@@ -340,7 +381,13 @@ class MainActivity : AppCompatActivity() {
         binding.btnTest.isEnabled = false
 
         lifecycleScope.launch {
-            val result = geminiService.checkGrammar(text, prefs.apiKey, prefs.customPrompt, prefs.selectedModel)
+            val result = geminiService.checkGrammar(
+                text = text,
+                apiKey = prefs.apiKey,
+                promptTemplate = prefs.customPrompt,
+                preferredModel = prefs.selectedModel,
+                sentenceScope = prefs.sentenceScope
+            )
             binding.pbLoading.visibility = View.GONE
             binding.btnTest.isEnabled = true
 
@@ -348,11 +395,13 @@ class MainActivity : AppCompatActivity() {
                 binding.layoutTestResult.visibility = View.VISIBLE
                 binding.tvTestCorrected.text = data.correctedText
                 var fullExplanation = data.explanation
-                if (data.vocabularyItem != null) {
-                    fullExplanation += "\n\n💡 Extracted Vocabulary:\n" +
-                            "• Target Phrase: ${data.vocabularyItem.targetPhrase}\n" +
-                            "• Meaning (FA): ${data.vocabularyItem.phraseMeaningFa}\n" +
-                            "• Sentence (FA): ${data.vocabularyItem.sentenceMeaningFa}"
+                if (data.vocabularyItems.isNotEmpty()) {
+                    fullExplanation += "\n\n💡 Extracted Vocabulary (${data.vocabularyItems.size} items):\n"
+                    data.vocabularyItems.forEachIndexed { idx, item ->
+                        fullExplanation += "${idx + 1}. ${item.targetPhrase} ➔ ${item.phraseMeaningFa}\n" +
+                                "   Sentence: ${item.correctedSentence}\n" +
+                                "   FA: ${item.sentenceMeaningFa}\n"
+                    }
                 }
                 binding.tvTestExplanation.text = fullExplanation
             }.onFailure { error ->

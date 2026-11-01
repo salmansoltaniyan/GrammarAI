@@ -34,7 +34,7 @@ class VocabularyManager(private val context: Context) {
                         ankiOk = true
                         messages.add("✓ Anki (${prefs.ankiDeckName}: 2 cards)")
                     } else {
-                        messages.add("✗ Anki error: ${ankiRes.exceptionOrNull()?.message}")
+                        messages.add("✗ Anki: ${ankiRes.exceptionOrNull()?.message}")
                     }
                 } else if (!ankiService.isAnkiDroidInstalled(context)) {
                     messages.add("⚠️ AnkiDroid not installed")
@@ -68,5 +68,48 @@ class VocabularyManager(private val context: Context) {
             )
         }
     }
-}
 
+    suspend fun saveItems(items: List<VocabularyItem>): SyncResult {
+        return withContext(Dispatchers.IO) {
+            if (items.isEmpty()) {
+                return@withContext SyncResult(false, false, "No vocabulary items selected")
+            }
+
+            var totalAnkiSaved = 0
+            var totalSheetsSaved = 0
+            val errors = mutableListOf<String>()
+
+            for (item in items) {
+                val res = saveItem(item)
+                if (res.ankiSuccess) totalAnkiSaved++
+                if (res.sheetsSuccess) totalSheetsSaved++
+                if (!res.ankiSuccess && !res.sheetsSuccess) {
+                    errors.add(res.message)
+                }
+            }
+
+            val summaryParts = mutableListOf<String>()
+            if (totalAnkiSaved > 0) {
+                summaryParts.add("✓ Anki ($totalAnkiSaved items)")
+            }
+            if (totalSheetsSaved > 0) {
+                summaryParts.add("✓ Sheets ($totalSheetsSaved items)")
+            }
+            if (summaryParts.isEmpty() && errors.isNotEmpty()) {
+                summaryParts.add(errors.first())
+            }
+
+            val message = if (totalAnkiSaved > 0 || totalSheetsSaved > 0) {
+                "Saved: " + summaryParts.joinToString(" | ")
+            } else {
+                summaryParts.joinToString(" | ")
+            }
+
+            SyncResult(
+                ankiSuccess = totalAnkiSaved > 0,
+                sheetsSuccess = totalSheetsSaved > 0,
+                message = message
+            )
+        }
+    }
+}

@@ -138,26 +138,23 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="💡 Key Vocabulary to Learn:"
+                android:text="💡 Key Vocabulary (Select to Save):"
                 android:textSize="11sp"
                 android:textStyle="bold"
                 android:textColor="@color/primary" />
 
-            <TextView
-                android:id="@+id/tvFloatingVocabPreview"
+            <LinearLayout
+                android:id="@+id/llFloatingVocabContainer"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="phrase ➔ معنی فارسی"
-                android:textSize="13sp"
-                android:textStyle="bold"
-                android:textColor="@color/text_primary"
-                android:layout_marginTop="2dp" />
+                android:orientation="vertical"
+                android:layout_marginTop="4dp" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnFloatingSaveVocab"
                 android:layout_width="match_parent"
                 android:layout_height="40dp"
-                android:text="📥 Save to Anki &amp; Google Sheets"
+                android:text="📥 Save Selected to Anki &amp; Sheets"
                 android:textSize="11sp"
                 android:layout_marginTop="6dp"
                 app:cornerRadius="6dp" />

@@ -17,8 +17,11 @@ import java.util.concurrent.TimeUnit
 data class GrammarResult(
     val correctedText: String,
     val explanation: String,
-    val vocabularyItem: VocabularyItem? = null
-)
+    val vocabularyItems: List<VocabularyItem> = emptyList()
+) {
+    val vocabularyItem: VocabularyItem?
+        get() = vocabularyItems.firstOrNull()
+}
 
 class GeminiService {
 
@@ -99,6 +102,7 @@ class GeminiService {
         apiKey: String,
         promptTemplate: String,
         preferredModel: String = PreferencesManager.DEFAULT_MODEL,
+        sentenceScope: Int = 0,
         isRetry: Boolean = false
     ): Result<GrammarResult> {
         return withContext(Dispatchers.IO) {
@@ -117,7 +121,19 @@ class GeminiService {
 
                 val url = "https://generativelanguage.googleapis.com/v1beta/models/$normalizedModel:generateContent?key=$apiKey"
 
-                val prompt = promptTemplate.replace("{text}", text)
+                val scopeDirective = when (sentenceScope) {
+                    1 -> "The user provided the full text for context, but you MUST ONLY correct the LAST SINGLE SENTENCE. Keep all preceding sentences completely UNCHANGED word-for-word in 'correctedText'. Any extracted vocabulary items MUST come strictly from this last corrected sentence."
+                    2 -> "The user provided the full text for context, but you MUST ONLY correct the LAST 2 SENTENCES. Keep all preceding sentences completely UNCHANGED word-for-word in 'correctedText'. Any extracted vocabulary items MUST come strictly from these last 2 corrected sentences."
+                    3 -> "The user provided the full text for context, but you MUST ONLY correct the LAST 3 SENTENCES. Keep all preceding sentences completely UNCHANGED word-for-word in 'correctedText'. Any extracted vocabulary items MUST come strictly from these last 3 corrected sentences."
+                    else -> "Correct all sentences in the provided text. Vocabulary items may be extracted from any part of the text."
+                }
+
+                var prompt = if (promptTemplate.contains("{scope_instruction}")) {
+                    promptTemplate.replace("{scope_instruction}", scopeDirective)
+                } else {
+                    "$promptTemplate\n\nCorrection Scope Directive:\n$scopeDirective"
+                }
+                prompt = prompt.replace("{text}", text)
 
                 val payload = JSONObject().apply {
                     put("contents", JSONArray().apply {
@@ -152,7 +168,7 @@ class GeminiService {
                     if (!isRetry) {
                         Log.w(TAG, "Socket timeout, retrying once...")
                         delay(1000)
-                        return@withContext checkGrammar(text, apiKey, promptTemplate, preferredModel, isRetry = true)
+                        return@withContext checkGrammar(text, apiKey, promptTemplate, preferredModel, sentenceScope, isRetry = true)
                     }
                     return@withContext Result.failure(
                         Exception("Connection timed out.\n\nPlease ensure your VPN is connected and Grammar AI is not excluded in your VPN settings.")
@@ -165,7 +181,7 @@ class GeminiService {
                 if ((response.code == 503 || response.code == 429) && !isRetry) {
                     Log.w(TAG, "Server busy (HTTP ${response.code}). Retrying in 2s...")
                     delay(2000)
-                    return@withContext checkGrammar(text, apiKey, promptTemplate, preferredModel, isRetry = true)
+                    return@withContext checkGrammar(text, apiKey, promptTemplate, preferredModel, sentenceScope, isRetry = true)
                 }
 
                 if (!response.isSuccessful) {
@@ -175,10 +191,10 @@ class GeminiService {
                         "HTTP ${response.code}: $responseBody"
                     }
 
-                    // If model is not available or rate limited, fallback to gemini-3.1-flash-lite
+                    // Fallback model if 404
                     if ((response.code == 404 || errorMsg.contains("not found", ignoreCase = true)) && normalizedModel != "gemini-3.1-flash-lite") {
                         Log.w(TAG, "Model $normalizedModel not found, falling back to gemini-3.1-flash-lite")
-                        return@withContext checkGrammar(text, apiKey, promptTemplate, "gemini-3.1-flash-lite", isRetry = true)
+                        return@withContext checkGrammar(text, apiKey, promptTemplate, "gemini-3.1-flash-lite", sentenceScope, isRetry = true)
                     }
 
                     return@withContext Result.failure(Exception("[$normalizedModel] $errorMsg"))
@@ -202,42 +218,46 @@ class GeminiService {
                     }
                     val explanation = resJson.optString("explanation", "Grammar check completed.")
 
-                    var vocabItem: VocabularyItem? = null
-                    val vocabJson = resJson.optJSONObject("vocabulary_item") ?: resJson.optJSONObject("vocabularyItem")
-                    if (vocabJson != null) {
-                        val targetPhrase = vocabJson.optString("target_phrase").ifBlank {
-                            vocabJson.optString("targetPhrase", "")
-                        }
-                        val correctedSent = vocabJson.optString("corrected_sentence").ifBlank {
-                            vocabJson.optString("correctedSentence", corrected)
-                        }
-                        val phraseFa = vocabJson.optString("phrase_meaning_fa").ifBlank {
-                            vocabJson.optString("phraseMeaningFa", "")
-                        }
-                        val sentenceFa = vocabJson.optString("sentence_meaning_fa").ifBlank {
-                            vocabJson.optString("sentenceMeaningFa", "")
-                        }
+                    val vocabList = mutableListOf<VocabularyItem>()
 
-                        if (targetPhrase.isNotBlank()) {
-                            vocabItem = VocabularyItem(
-                                targetPhrase = targetPhrase,
-                                correctedSentence = correctedSent,
-                                phraseMeaningFa = phraseFa,
-                                sentenceMeaningFa = sentenceFa
-                            )
+                    // 1. Check array: "vocabulary_items"
+                    val itemsArray = resJson.optJSONArray("vocabulary_items")
+                        ?: resJson.optJSONArray("vocabularyItems")
+
+                    if (itemsArray != null) {
+                        for (i in 0 until itemsArray.length()) {
+                            val vObj = itemsArray.getJSONObject(i)
+                            val item = parseVocabItem(vObj, corrected)
+                            if (item != null && vocabList.none { it.targetPhrase.equals(item.targetPhrase, ignoreCase = true) }) {
+                                vocabList.add(item)
+                            }
+                            if (vocabList.size >= 3) break
+                        }
+                    }
+
+                    // 2. Fallback to single object: "vocabulary_item" if array empty
+                    if (vocabList.isEmpty()) {
+                        val singleObj = resJson.optJSONObject("vocabulary_item")
+                            ?: resJson.optJSONObject("vocabularyItem")
+                        if (singleObj != null) {
+                            val item = parseVocabItem(singleObj, corrected)
+                            if (item != null) {
+                                vocabList.add(item)
+                            }
                         }
                     }
 
                     GrammarResult(
                         correctedText = corrected,
                         explanation = explanation,
-                        vocabularyItem = vocabItem
+                        vocabularyItems = vocabList
                     )
                 } catch (e: Exception) {
+                    Log.e(TAG, "Failed parsing Gemini JSON", e)
                     GrammarResult(
                         correctedText = rawText,
                         explanation = "Direct AI output.",
-                        vocabularyItem = null
+                        vocabularyItems = emptyList()
                     )
                 }
 
@@ -246,6 +266,33 @@ class GeminiService {
                 Result.failure(e)
             }
         }
+    }
+
+    private fun parseVocabItem(json: JSONObject, fallbackSentence: String): VocabularyItem? {
+        val targetPhrase = json.optString("target_phrase").ifBlank {
+            json.optString("targetPhrase", "")
+        }.trim()
+
+        if (targetPhrase.isBlank()) return null
+
+        val correctedSent = json.optString("corrected_sentence").ifBlank {
+            json.optString("correctedSentence", fallbackSentence)
+        }.trim()
+
+        val phraseFa = json.optString("phrase_meaning_fa").ifBlank {
+            json.optString("phraseMeaningFa", "")
+        }.trim()
+
+        val sentenceFa = json.optString("sentence_meaning_fa").ifBlank {
+            json.optString("sentenceMeaningFa", "")
+        }.trim()
+
+        return VocabularyItem(
+            targetPhrase = targetPhrase,
+            correctedSentence = correctedSent,
+            phraseMeaningFa = phraseFa,
+            sentenceMeaningFa = sentenceFa
+        )
     }
 
     private fun cleanJsonOutput(raw: String): String {
