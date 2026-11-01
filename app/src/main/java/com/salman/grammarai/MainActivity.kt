@@ -166,6 +166,13 @@ class MainActivity : AppCompatActivity() {
     private fun setupFloatingSection() {
         updateFloatingStatus()
 
+        binding.swClipboardTranslation.isChecked = prefs.clipboardTranslationEnabled
+        binding.swClipboardTranslation.setOnCheckedChangeListener { _, isChecked ->
+            prefs.clipboardTranslationEnabled = isChecked
+            val msg = if (isChecked) "Clipboard Translator enabled" else "Clipboard Translator disabled"
+            Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+        }
+
         binding.btnConfigureFloating.setOnClickListener {
             // First check Overlay permission
             if (!Settings.canDrawOverlays(this)) {

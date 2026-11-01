@@ -35,6 +35,10 @@ class PreferencesManager(context: Context) {
         get() = prefs.getBoolean(KEY_ANKI_ENABLED, true)
         set(value) = prefs.edit().putBoolean(KEY_ANKI_ENABLED, value).apply()
 
+    var clipboardTranslationEnabled: Boolean
+        get() = prefs.getBoolean(KEY_CLIPBOARD_TRANSLATION_ENABLED, true)
+        set(value) = prefs.edit().putBoolean(KEY_CLIPBOARD_TRANSLATION_ENABLED, value).apply()
+
     /**
      * Correction scope:
      * 0 -> All sentences
@@ -79,6 +83,7 @@ class PreferencesManager(context: Context) {
         private const val KEY_ANKI_DECK_NAME = "anki_deck_name"
         private const val KEY_ANKI_ENABLED = "anki_enabled"
         private const val KEY_SENTENCE_SCOPE = "sentence_scope"
+        private const val KEY_CLIPBOARD_TRANSLATION_ENABLED = "clipboard_translation_enabled"
 
         const val DEFAULT_MODEL = "gemini-3.5-flash-lite"
 

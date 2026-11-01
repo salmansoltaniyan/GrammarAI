@@ -7,6 +7,8 @@ import android.content.Context
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.util.Log
 import android.view.ContextThemeWrapper
@@ -53,19 +55,56 @@ class GrammarAccessibilityService : AccessibilityService() {
     private var dialogView: View? = null
     private var dialogParams: WindowManager.LayoutParams? = null
 
+    // Clipboard Translator components
+    private lateinit var clipboardManager: ClipboardManager
+    private var lastProcessedClipText: String = ""
+    private var isInternalCopy: Boolean = false
+
+    // Translate Bubble views and params
+    private var translateBubbleView: View? = null
+    private var translateBubbleParams: WindowManager.LayoutParams? = null
+    private val autoDismissHandler = Handler(Looper.getMainLooper())
+    private val dismissTranslateRunnable = Runnable { removeTranslateBubbleView() }
+
+    // Translation Dialog views and params
+    private var translationDialogView: View? = null
+    private var translationDialogParams: WindowManager.LayoutParams? = null
+
+    private val clipListener = ClipboardManager.OnPrimaryClipChangedListener {
+        handleClipboardChanged()
+    }
+
     override fun onCreate() {
         super.onCreate()
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        clipboardManager = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         prefs = PreferencesManager(this)
         isServiceRunning = true
+
+        try {
+            clipboardManager.addPrimaryClipChangedListener(clipListener)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error registering clipboard listener", e)
+        }
+
         Log.d(TAG, "GrammarAccessibilityService created")
     }
 
     override fun onDestroy() {
         super.onDestroy()
         isServiceRunning = false
+
+        try {
+            clipboardManager.removePrimaryClipChangedListener(clipListener)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error unregistering clipboard listener", e)
+        }
+
+        autoDismissHandler.removeCallbacksAndMessages(null)
         removeBubbleView()
         removeDialogView()
+        removeTranslateBubbleView()
+        removeTranslationDialogView()
         currentEditableNode?.recycle()
         currentEditableNode = null
         Log.d(TAG, "GrammarAccessibilityService destroyed")
@@ -339,9 +378,9 @@ class GrammarAccessibilityService : AccessibilityService() {
                 }
 
                 btnCopy.setOnClickListener {
-                    val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    isInternalCopy = true
                     val clip = ClipData.newPlainText("Corrected Text", data.correctedText)
-                    clipboard.setPrimaryClip(clip)
+                    clipboardManager.setPrimaryClip(clip)
                     Toast.makeText(this@GrammarAccessibilityService, "Copied to clipboard!", Toast.LENGTH_SHORT).show()
                     removeDialogView()
                 }
@@ -367,9 +406,9 @@ class GrammarAccessibilityService : AccessibilityService() {
             Toast.makeText(this, "Text replaced successfully!", Toast.LENGTH_SHORT).show()
         } else {
             // Fallback: Copy to clipboard if host app disallowed direct replace
-            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            isInternalCopy = true
             val clip = ClipData.newPlainText("Corrected Text", newText)
-            clipboard.setPrimaryClip(clip)
+            clipboardManager.setPrimaryClip(clip)
             Toast.makeText(this, "Copied! (Paste into text field)", Toast.LENGTH_LONG).show()
         }
     }
@@ -383,5 +422,284 @@ class GrammarAccessibilityService : AccessibilityService() {
             }
         }
         dialogView = null
+    }
+
+    // =========================================================================
+    // Clipboard Translation Feature
+    // =========================================================================
+
+    private fun handleClipboardChanged() {
+        if (!prefs.clipboardTranslationEnabled || !canDrawOverlays()) return
+        if (isInternalCopy) {
+            isInternalCopy = false
+            return
+        }
+
+        try {
+            val clip = clipboardManager.primaryClip ?: return
+            if (clip.itemCount == 0) return
+            val raw = clip.getItemAt(0)?.text?.toString() ?: return
+            val text = raw.trim()
+
+            if (text.isBlank() || text == lastProcessedClipText) return
+            // Ignore very short strings, URLs, or plain numbers
+            if (text.length < 3 || text.startsWith("http://") || text.startsWith("https://")) return
+            if (text.all { it.isDigit() || it.isWhitespace() || it == '-' || it == '+' }) return
+
+            lastProcessedClipText = text
+            showTranslateBubble(text)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error handling clipboard change", e)
+        }
+    }
+
+    private fun showTranslateBubble(text: String) {
+        if (!canDrawOverlays()) return
+        removeTranslateBubbleView()
+
+        val themedContext = ContextThemeWrapper(this, R.style.Theme_GrammarAI)
+        val inflater = LayoutInflater.from(themedContext)
+        translateBubbleView = inflater.inflate(R.layout.layout_floating_translate_bubble, null)
+
+        val layoutType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        } else {
+            @Suppress("DEPRECATION")
+            WindowManager.LayoutParams.TYPE_PHONE
+        }
+
+        val displayMetrics = resources.displayMetrics
+        translateBubbleParams = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            layoutType,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = displayMetrics.widthPixels - 140
+            y = displayMetrics.heightPixels / 3
+        }
+
+        setupTranslateBubbleTouchListener(text)
+
+        try {
+            windowManager.addView(translateBubbleView, translateBubbleParams)
+            // Auto dismiss after 6 seconds
+            autoDismissHandler.removeCallbacks(dismissTranslateRunnable)
+            autoDismissHandler.postDelayed(dismissTranslateRunnable, 6000)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error adding translate bubble view", e)
+            translateBubbleView = null
+        }
+    }
+
+    private fun removeTranslateBubbleView() {
+        autoDismissHandler.removeCallbacks(dismissTranslateRunnable)
+        translateBubbleView?.let {
+            try {
+                windowManager.removeView(it)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error removing translate bubble view", e)
+            }
+        }
+        translateBubbleView = null
+    }
+
+    private fun setupTranslateBubbleTouchListener(text: String) {
+        val view = translateBubbleView ?: return
+        val ivIcon = view.findViewById<ImageView>(R.id.ivTranslateBubbleIcon)
+
+        var initialX = 0
+        var initialY = 0
+        var initialTouchX = 0f
+        var initialTouchY = 0f
+
+        ivIcon.setOnTouchListener { _, motionEvent ->
+            val params = translateBubbleParams ?: return@setOnTouchListener false
+            when (motionEvent.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    initialX = params.x
+                    initialY = params.y
+                    initialTouchX = motionEvent.rawX
+                    initialTouchY = motionEvent.rawY
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    params.x = initialX + (motionEvent.rawX - initialTouchX).toInt()
+                    params.y = initialY + (motionEvent.rawY - initialTouchY).toInt()
+                    try {
+                        windowManager.updateViewLayout(view, params)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error updating translate bubble layout", e)
+                    }
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    val diffX = abs(motionEvent.rawX - initialTouchX)
+                    val diffY = abs(motionEvent.rawY - initialTouchY)
+                    if (diffX < 15 && diffY < 15) {
+                        removeTranslateBubbleView()
+                        showTranslationDialog(text)
+                    }
+                    true
+                }
+                else -> false
+            }
+        }
+    }
+
+    private fun showTranslationDialog(text: String) {
+        if (!canDrawOverlays()) return
+        removeTranslationDialogView()
+
+        val themedContext = ContextThemeWrapper(this, R.style.Theme_GrammarAI)
+        val inflater = LayoutInflater.from(themedContext)
+        translationDialogView = inflater.inflate(R.layout.layout_dialog_translation, null)
+
+        val layoutType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        } else {
+            @Suppress("DEPRECATION")
+            WindowManager.LayoutParams.TYPE_PHONE
+        }
+
+        val displayMetrics = resources.displayMetrics
+        val width = (displayMetrics.widthPixels * 0.92).toInt()
+
+        translationDialogParams = WindowManager.LayoutParams(
+            width,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            layoutType,
+            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.CENTER
+        }
+
+        val root = translationDialogView ?: return
+        val btnClose = root.findViewById<ImageButton>(R.id.btnTranslateClose)
+        val tvOriginal = root.findViewById<TextView>(R.id.tvTranslateOriginal)
+        val layoutLoading = root.findViewById<LinearLayout>(R.id.translateLoading)
+        val layoutResult = root.findViewById<LinearLayout>(R.id.translateResult)
+        val tvError = root.findViewById<TextView>(R.id.tvTranslateError)
+        val tvPersian = root.findViewById<TextView>(R.id.tvTranslatePersian)
+        val btnCopy = root.findViewById<MaterialButton>(R.id.btnCopyTranslation)
+        val layoutVocab = root.findViewById<LinearLayout>(R.id.layoutTranslateVocab)
+        val llVocabContainer = root.findViewById<LinearLayout>(R.id.llTranslateVocabContainer)
+        val btnSaveVocab = root.findViewById<MaterialButton>(R.id.btnTranslateSaveVocab)
+
+        tvOriginal.text = text
+
+        btnClose.setOnClickListener {
+            removeTranslationDialogView()
+        }
+
+        root.setOnTouchListener { _, motionEvent ->
+            if (motionEvent.action == MotionEvent.ACTION_OUTSIDE) {
+                removeTranslationDialogView()
+                true
+            } else {
+                false
+            }
+        }
+
+        try {
+            windowManager.addView(root, translationDialogParams)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error adding translation dialog view", e)
+            return
+        }
+
+        serviceScope.launch {
+            val result = geminiService.translateText(
+                text = text,
+                apiKey = prefs.apiKey,
+                preferredModel = prefs.selectedModel
+            )
+
+            layoutLoading.visibility = View.GONE
+
+            result.onSuccess { data ->
+                layoutResult.visibility = View.VISIBLE
+                tvPersian.text = data.translationFa
+
+                btnCopy.setOnClickListener {
+                    isInternalCopy = true
+                    val clip = ClipData.newPlainText("Persian Translation", data.translationFa)
+                    clipboardManager.setPrimaryClip(clip)
+                    Toast.makeText(this@GrammarAccessibilityService, "Translation copied!", Toast.LENGTH_SHORT).show()
+                }
+
+                val vocabItems = data.vocabularyItems
+                llVocabContainer.removeAllViews()
+
+                if (vocabItems.isNotEmpty()) {
+                    layoutVocab.visibility = View.VISIBLE
+                    val selectedItems = vocabItems.toMutableSet()
+
+                    fun updateSaveButton() {
+                        val count = selectedItems.size
+                        btnSaveVocab.isEnabled = count > 0
+                        btnSaveVocab.text = if (count > 0) {
+                            "📥 Save Selected ($count) to Anki & Sheets"
+                        } else {
+                            "Select items above to save"
+                        }
+                    }
+
+                    for (item in vocabItems) {
+                        val itemBinding = ItemVocabSelectionBinding.inflate(inflater, llVocabContainer, false)
+                        itemBinding.tvVocabTitle.text = "${item.targetPhrase} ➔ ${item.phraseMeaningFa}"
+                        itemBinding.tvVocabSentence.text = item.correctedSentence
+                        itemBinding.cbVocabSelect.isChecked = true
+
+                        itemBinding.cbVocabSelect.setOnCheckedChangeListener { _, isChecked ->
+                            if (isChecked) {
+                                selectedItems.add(item)
+                            } else {
+                                selectedItems.remove(item)
+                            }
+                            updateSaveButton()
+                        }
+
+                        llVocabContainer.addView(itemBinding.root)
+                    }
+
+                    updateSaveButton()
+
+                    btnSaveVocab.setOnClickListener {
+                        val toSave = selectedItems.toList()
+                        if (toSave.isEmpty()) return@setOnClickListener
+
+                        btnSaveVocab.isEnabled = false
+                        btnSaveVocab.text = "Saving ${toSave.size} item(s)..."
+
+                        serviceScope.launch {
+                            val res = VocabularyManager(this@GrammarAccessibilityService).saveItems(toSave)
+                            val prefix = if (res.ankiSuccess || res.sheetsSuccess) "✓ " else "⚠️ "
+                            btnSaveVocab.text = prefix + res.message
+                            Toast.makeText(this@GrammarAccessibilityService, res.message, Toast.LENGTH_LONG).show()
+                        }
+                    }
+                } else {
+                    layoutVocab.visibility = View.GONE
+                }
+            }.onFailure { error ->
+                tvError.visibility = View.VISIBLE
+                tvError.text = "Error: ${error.localizedMessage}"
+            }
+        }
+    }
+
+    private fun removeTranslationDialogView() {
+        translationDialogView?.let {
+            try {
+                windowManager.removeView(it)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error removing translation dialog view", e)
+            }
+        }
+        translationDialogView = null
     }
 }
