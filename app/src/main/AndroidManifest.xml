@@ -44,6 +44,21 @@
             </intent-filter>
         </activity>
 
+        <!-- Smart Translation Dialog Activity triggered by Floating Translate Bubble & Text Selection -->
+        <activity
+            android:name=".TranslationDialogActivity"
+            android:label="🌐 Translate (Grammar AI)"
+            android:icon="@drawable/ic_launcher"
+            android:exported="true"
+            android:theme="@style/Theme.GrammarAI.Dialog"
+            android:windowSoftInputMode="stateHidden">
+            <intent-filter>
+                <action android:name="android.intent.action.PROCESS_TEXT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
+
         <!-- Accessibility Service for Floating Bubble Mode (Grammarly style) -->
         <service
             android:name=".GrammarAccessibilityService"
