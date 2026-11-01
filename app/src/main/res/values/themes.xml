@@ -1,21 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Base Application Theme -->
-    <style name="Theme.GrammarAI" parent="Theme.Material3.DayNight.NoActionBar">
+    <style name="Theme.GrammarAI" parent="Theme.Material3.Light.NoActionBar">
         <item name="colorPrimary">@color/primary</item>
         <item name="colorSecondary">@color/secondary</item>
         <item name="android:statusBarColor">@color/background</item>
         <item name="android:windowLightStatusBar">true</item>
+        <item name="android:colorBackground">@color/background</item>
+        <item name="colorSurface">@color/surface</item>
     </style>
 
     <!-- Floating Dialog Theme for ProcessTextActivity -->
-    <style name="Theme.GrammarAI.Dialog" parent="Theme.Material3.DayNight.Dialog">
+    <style name="Theme.GrammarAI.Dialog" parent="Theme.Material3.Light.Dialog">
         <item name="colorPrimary">@color/primary</item>
         <item name="android:windowBackground">@android:color/transparent</item>
         <item name="android:windowNoTitle">true</item>
         <item name="android:windowIsFloating">true</item>
         <item name="android:backgroundDimEnabled">true</item>
         <item name="android:backgroundDimAmount">0.5</item>
+        <item name="colorSurface">@color/surface</item>
     </style>
 </resources>
 

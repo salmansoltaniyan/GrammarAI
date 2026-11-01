@@ -137,6 +137,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="48dp"
                     android:background="@drawable/bg_spinner"
+                    android:popupBackground="@drawable/bg_spinner_popup"
                     android:paddingStart="12dp"
                     android:paddingEnd="12dp" />
             </LinearLayout>
@@ -181,6 +182,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="48dp"
                     android:background="@drawable/bg_spinner"
+                    android:popupBackground="@drawable/bg_spinner_popup"
                     android:paddingStart="12dp"
                     android:paddingEnd="12dp" />
             </LinearLayout>

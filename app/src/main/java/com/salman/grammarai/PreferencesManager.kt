@@ -51,10 +51,11 @@ class PreferencesManager(context: Context) {
     }
 
     fun getScopeInstruction(scope: Int = sentenceScope): String {
+        val boundaryRule = "Sentence boundary rule: A sentence is delimited by sentence-ending punctuation (., ?, !, or line break). Complex or compound clauses connected with conjunctions (e.g., 'omdat', 'want', 'maar', 'en', 'als', 'dus', 'hoewel', 'because', 'although', 'and', 'but') count as a SINGLE sentence unless separated by terminal punctuation."
         return when (scope) {
-            1 -> "The user provided the full text for context, but you MUST ONLY correct the LAST SINGLE SENTENCE. Keep all preceding sentences completely UNCHANGED word-for-word in 'correctedText'. Any extracted vocabulary items MUST come strictly from this last corrected sentence."
-            2 -> "The user provided the full text for context, but you MUST ONLY correct the LAST 2 SENTENCES. Keep all preceding sentences completely UNCHANGED word-for-word in 'correctedText'. Any extracted vocabulary items MUST come strictly from these last 2 corrected sentences."
-            3 -> "The user provided the full text for context, but you MUST ONLY correct the LAST 3 SENTENCES. Keep all preceding sentences completely UNCHANGED word-for-word in 'correctedText'. Any extracted vocabulary items MUST come strictly from these last 3 corrected sentences."
+            1 -> "The user provided the full text for context, but you MUST ONLY correct the LAST SINGLE SENTENCE. Keep all preceding sentences completely UNCHANGED word-for-word in 'correctedText'. Any extracted vocabulary items MUST come strictly from this last corrected sentence. $boundaryRule"
+            2 -> "The user provided the full text for context, but you MUST ONLY correct the LAST 2 SENTENCES. Keep all preceding sentences completely UNCHANGED word-for-word in 'correctedText'. Any extracted vocabulary items MUST come strictly from these last 2 corrected sentences. $boundaryRule"
+            3 -> "The user provided the full text for context, but you MUST ONLY correct the LAST 3 SENTENCES. Keep all preceding sentences completely UNCHANGED word-for-word in 'correctedText'. Any extracted vocabulary items MUST come strictly from these last 3 corrected sentences. $boundaryRule"
             else -> "Correct all sentences in the provided text. Vocabulary items may be extracted from any part of the corrected text."
         }
     }
