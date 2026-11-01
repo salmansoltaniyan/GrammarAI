@@ -38,6 +38,8 @@ class GrammarAccessibilityService : AccessibilityService() {
         private const val TAG = "GrammarAccessService"
         var isServiceRunning = false
             private set
+        var instance: GrammarAccessibilityService? = null
+            private set
     }
 
     private lateinit var windowManager: WindowManager
@@ -55,52 +57,47 @@ class GrammarAccessibilityService : AccessibilityService() {
     private var dialogView: View? = null
     private var dialogParams: WindowManager.LayoutParams? = null
 
-    // Clipboard Translator components
+    // Clipboard & Translation components
     private lateinit var clipboardManager: ClipboardManager
-    private var lastProcessedClipText: String = ""
-    private var isInternalCopy: Boolean = false
 
     // Translate Bubble views and params
     private var translateBubbleView: View? = null
     private var translateBubbleParams: WindowManager.LayoutParams? = null
-    private val autoDismissHandler = Handler(Looper.getMainLooper())
-    private val dismissTranslateRunnable = Runnable { removeTranslateBubbleView() }
 
     // Translation Dialog views and params
     private var translationDialogView: View? = null
     private var translationDialogParams: WindowManager.LayoutParams? = null
 
-    private val clipListener = ClipboardManager.OnPrimaryClipChangedListener {
-        handleClipboardChanged()
-    }
-
     override fun onCreate() {
         super.onCreate()
+        instance = this
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         clipboardManager = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         prefs = PreferencesManager(this)
         isServiceRunning = true
 
-        try {
-            clipboardManager.addPrimaryClipChangedListener(clipListener)
-        } catch (e: Exception) {
-            Log.e(TAG, "Error registering clipboard listener", e)
+        if (prefs.clipboardTranslationEnabled && canDrawOverlays()) {
+            showTranslateBubble()
         }
 
         Log.d(TAG, "GrammarAccessibilityService created")
     }
 
+    override fun onServiceConnected() {
+        super.onServiceConnected()
+        instance = this
+        if (prefs.clipboardTranslationEnabled && canDrawOverlays()) {
+            showTranslateBubble()
+        }
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         isServiceRunning = false
-
-        try {
-            clipboardManager.removePrimaryClipChangedListener(clipListener)
-        } catch (e: Exception) {
-            Log.e(TAG, "Error unregistering clipboard listener", e)
+        if (instance == this) {
+            instance = null
         }
 
-        autoDismissHandler.removeCallbacksAndMessages(null)
         removeBubbleView()
         removeDialogView()
         removeTranslateBubbleView()
@@ -378,7 +375,6 @@ class GrammarAccessibilityService : AccessibilityService() {
                 }
 
                 btnCopy.setOnClickListener {
-                    isInternalCopy = true
                     val clip = ClipData.newPlainText("Corrected Text", data.correctedText)
                     clipboardManager.setPrimaryClip(clip)
                     Toast.makeText(this@GrammarAccessibilityService, "Copied to clipboard!", Toast.LENGTH_SHORT).show()
@@ -406,7 +402,6 @@ class GrammarAccessibilityService : AccessibilityService() {
             Toast.makeText(this, "Text replaced successfully!", Toast.LENGTH_SHORT).show()
         } else {
             // Fallback: Copy to clipboard if host app disallowed direct replace
-            isInternalCopy = true
             val clip = ClipData.newPlainText("Corrected Text", newText)
             clipboardManager.setPrimaryClip(clip)
             Toast.makeText(this, "Copied! (Paste into text field)", Toast.LENGTH_LONG).show()
@@ -425,37 +420,12 @@ class GrammarAccessibilityService : AccessibilityService() {
     }
 
     // =========================================================================
-    // Clipboard Translation Feature
+    // Dedicated Translate Bubble (Option A: Tap 🌐 on screen to Translate)
     // =========================================================================
 
-    private fun handleClipboardChanged() {
-        if (!prefs.clipboardTranslationEnabled || !canDrawOverlays()) return
-        if (isInternalCopy) {
-            isInternalCopy = false
-            return
-        }
-
-        try {
-            val clip = clipboardManager.primaryClip ?: return
-            if (clip.itemCount == 0) return
-            val raw = clip.getItemAt(0)?.text?.toString() ?: return
-            val text = raw.trim()
-
-            if (text.isBlank() || text == lastProcessedClipText) return
-            // Ignore very short strings, URLs, or plain numbers
-            if (text.length < 3 || text.startsWith("http://") || text.startsWith("https://")) return
-            if (text.all { it.isDigit() || it.isWhitespace() || it == '-' || it == '+' }) return
-
-            lastProcessedClipText = text
-            showTranslateBubble(text)
-        } catch (e: Exception) {
-            Log.e(TAG, "Error handling clipboard change", e)
-        }
-    }
-
-    private fun showTranslateBubble(text: String) {
+    fun showTranslateBubble() {
         if (!canDrawOverlays()) return
-        removeTranslateBubbleView()
+        if (translateBubbleView != null) return // Already showing
 
         val themedContext = ContextThemeWrapper(this, R.style.Theme_GrammarAI)
         val inflater = LayoutInflater.from(themedContext)
@@ -481,21 +451,17 @@ class GrammarAccessibilityService : AccessibilityService() {
             y = displayMetrics.heightPixels / 3
         }
 
-        setupTranslateBubbleTouchListener(text)
+        setupTranslateBubbleTouchListener()
 
         try {
             windowManager.addView(translateBubbleView, translateBubbleParams)
-            // Auto dismiss after 6 seconds
-            autoDismissHandler.removeCallbacks(dismissTranslateRunnable)
-            autoDismissHandler.postDelayed(dismissTranslateRunnable, 6000)
         } catch (e: Exception) {
             Log.e(TAG, "Error adding translate bubble view", e)
             translateBubbleView = null
         }
     }
 
-    private fun removeTranslateBubbleView() {
-        autoDismissHandler.removeCallbacks(dismissTranslateRunnable)
+    fun removeTranslateBubbleView() {
         translateBubbleView?.let {
             try {
                 windowManager.removeView(it)
@@ -506,7 +472,7 @@ class GrammarAccessibilityService : AccessibilityService() {
         translateBubbleView = null
     }
 
-    private fun setupTranslateBubbleTouchListener(text: String) {
+    private fun setupTranslateBubbleTouchListener() {
         val view = translateBubbleView ?: return
         val ivIcon = view.findViewById<ImageView>(R.id.ivTranslateBubbleIcon)
 
@@ -539,8 +505,7 @@ class GrammarAccessibilityService : AccessibilityService() {
                     val diffX = abs(motionEvent.rawX - initialTouchX)
                     val diffY = abs(motionEvent.rawY - initialTouchY)
                     if (diffX < 15 && diffY < 15) {
-                        removeTranslateBubbleView()
-                        showTranslationDialog(text)
+                        onTranslateBubbleClicked()
                     }
                     true
                 }
@@ -549,7 +514,28 @@ class GrammarAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun showTranslationDialog(text: String) {
+    private fun onTranslateBubbleClicked() {
+        if (!prefs.isApiKeyConfigured) {
+            Toast.makeText(this, "Please set Gemini API Key in Grammar AI app", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        val clip = clipboardManager.primaryClip
+        val text = if (clip != null && clip.itemCount > 0) {
+            clip.getItemAt(0)?.text?.toString()?.trim() ?: ""
+        } else {
+            ""
+        }
+
+        if (text.isBlank()) {
+            Toast.makeText(this, "Clipboard is empty! Copy a message in WhatsApp first.", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        showTranslationDialog(text)
+    }
+
+    private fun showTranslationDialog(initialText: String) {
         if (!canDrawOverlays()) return
         removeTranslationDialogView()
 
@@ -580,6 +566,7 @@ class GrammarAccessibilityService : AccessibilityService() {
         val root = translationDialogView ?: return
         val btnClose = root.findViewById<ImageButton>(R.id.btnTranslateClose)
         val tvOriginal = root.findViewById<TextView>(R.id.tvTranslateOriginal)
+        val btnPasteNew = root.findViewById<TextView>(R.id.btnPasteNewText)
         val layoutLoading = root.findViewById<LinearLayout>(R.id.translateLoading)
         val layoutResult = root.findViewById<LinearLayout>(R.id.translateResult)
         val tvError = root.findViewById<TextView>(R.id.tvTranslateError)
@@ -588,8 +575,6 @@ class GrammarAccessibilityService : AccessibilityService() {
         val layoutVocab = root.findViewById<LinearLayout>(R.id.layoutTranslateVocab)
         val llVocabContainer = root.findViewById<LinearLayout>(R.id.llTranslateVocabContainer)
         val btnSaveVocab = root.findViewById<MaterialButton>(R.id.btnTranslateSaveVocab)
-
-        tvOriginal.text = text
 
         btnClose.setOnClickListener {
             removeTranslationDialogView()
@@ -604,91 +589,110 @@ class GrammarAccessibilityService : AccessibilityService() {
             }
         }
 
-        try {
-            windowManager.addView(root, translationDialogParams)
-        } catch (e: Exception) {
-            Log.e(TAG, "Error adding translation dialog view", e)
-            return
+        fun executeTranslation(textToTranslate: String) {
+            tvOriginal.text = textToTranslate
+            layoutLoading.visibility = View.VISIBLE
+            layoutResult.visibility = View.GONE
+            tvError.visibility = View.GONE
+
+            serviceScope.launch {
+                val result = geminiService.translateText(
+                    text = textToTranslate,
+                    apiKey = prefs.apiKey,
+                    preferredModel = prefs.selectedModel
+                )
+
+                layoutLoading.visibility = View.GONE
+
+                result.onSuccess { data ->
+                    layoutResult.visibility = View.VISIBLE
+                    tvPersian.text = data.translationFa
+
+                    btnCopy.setOnClickListener {
+                        val clip = ClipData.newPlainText("Persian Translation", data.translationFa)
+                        clipboardManager.setPrimaryClip(clip)
+                        Toast.makeText(this@GrammarAccessibilityService, "Translation copied!", Toast.LENGTH_SHORT).show()
+                    }
+
+                    val vocabItems = data.vocabularyItems
+                    llVocabContainer.removeAllViews()
+
+                    if (vocabItems.isNotEmpty()) {
+                        layoutVocab.visibility = View.VISIBLE
+                        val selectedItems = vocabItems.toMutableSet()
+
+                        fun updateSaveButton() {
+                            val count = selectedItems.size
+                            btnSaveVocab.isEnabled = count > 0
+                            btnSaveVocab.text = if (count > 0) {
+                                "📥 Save Selected ($count) to Anki & Sheets"
+                            } else {
+                                "Select items above to save"
+                            }
+                        }
+
+                        for (item in vocabItems) {
+                            val itemBinding = ItemVocabSelectionBinding.inflate(inflater, llVocabContainer, false)
+                            itemBinding.tvVocabTitle.text = "${item.targetPhrase} ➔ ${item.phraseMeaningFa}"
+                            itemBinding.tvVocabSentence.text = item.correctedSentence
+                            itemBinding.cbVocabSelect.isChecked = true
+
+                            itemBinding.cbVocabSelect.setOnCheckedChangeListener { _, isChecked ->
+                                if (isChecked) {
+                                    selectedItems.add(item)
+                                } else {
+                                    selectedItems.remove(item)
+                                }
+                                updateSaveButton()
+                            }
+
+                            llVocabContainer.addView(itemBinding.root)
+                        }
+
+                        updateSaveButton()
+
+                        btnSaveVocab.setOnClickListener {
+                            val toSave = selectedItems.toList()
+                            if (toSave.isEmpty()) return@setOnClickListener
+
+                            btnSaveVocab.isEnabled = false
+                            btnSaveVocab.text = "Saving ${toSave.size} item(s)..."
+
+                            serviceScope.launch {
+                                val res = VocabularyManager(this@GrammarAccessibilityService).saveItems(toSave)
+                                val prefix = if (res.ankiSuccess || res.sheetsSuccess) "✓ " else "⚠️ "
+                                btnSaveVocab.text = prefix + res.message
+                                Toast.makeText(this@GrammarAccessibilityService, res.message, Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    } else {
+                        layoutVocab.visibility = View.GONE
+                    }
+                }.onFailure { error ->
+                    tvError.visibility = View.VISIBLE
+                    tvError.text = "Error: ${error.localizedMessage}"
+                }
+            }
         }
 
-        serviceScope.launch {
-            val result = geminiService.translateText(
-                text = text,
-                apiKey = prefs.apiKey,
-                preferredModel = prefs.selectedModel
-            )
+        btnPasteNew.setOnClickListener {
+            val clip = clipboardManager.primaryClip
+            val newText = if (clip != null && clip.itemCount > 0) {
+                clip.getItemAt(0)?.text?.toString()?.trim() ?: ""
+            } else ""
 
-            layoutLoading.visibility = View.GONE
-
-            result.onSuccess { data ->
-                layoutResult.visibility = View.VISIBLE
-                tvPersian.text = data.translationFa
-
-                btnCopy.setOnClickListener {
-                    isInternalCopy = true
-                    val clip = ClipData.newPlainText("Persian Translation", data.translationFa)
-                    clipboardManager.setPrimaryClip(clip)
-                    Toast.makeText(this@GrammarAccessibilityService, "Translation copied!", Toast.LENGTH_SHORT).show()
-                }
-
-                val vocabItems = data.vocabularyItems
-                llVocabContainer.removeAllViews()
-
-                if (vocabItems.isNotEmpty()) {
-                    layoutVocab.visibility = View.VISIBLE
-                    val selectedItems = vocabItems.toMutableSet()
-
-                    fun updateSaveButton() {
-                        val count = selectedItems.size
-                        btnSaveVocab.isEnabled = count > 0
-                        btnSaveVocab.text = if (count > 0) {
-                            "📥 Save Selected ($count) to Anki & Sheets"
-                        } else {
-                            "Select items above to save"
-                        }
-                    }
-
-                    for (item in vocabItems) {
-                        val itemBinding = ItemVocabSelectionBinding.inflate(inflater, llVocabContainer, false)
-                        itemBinding.tvVocabTitle.text = "${item.targetPhrase} ➔ ${item.phraseMeaningFa}"
-                        itemBinding.tvVocabSentence.text = item.correctedSentence
-                        itemBinding.cbVocabSelect.isChecked = true
-
-                        itemBinding.cbVocabSelect.setOnCheckedChangeListener { _, isChecked ->
-                            if (isChecked) {
-                                selectedItems.add(item)
-                            } else {
-                                selectedItems.remove(item)
-                            }
-                            updateSaveButton()
-                        }
-
-                        llVocabContainer.addView(itemBinding.root)
-                    }
-
-                    updateSaveButton()
-
-                    btnSaveVocab.setOnClickListener {
-                        val toSave = selectedItems.toList()
-                        if (toSave.isEmpty()) return@setOnClickListener
-
-                        btnSaveVocab.isEnabled = false
-                        btnSaveVocab.text = "Saving ${toSave.size} item(s)..."
-
-                        serviceScope.launch {
-                            val res = VocabularyManager(this@GrammarAccessibilityService).saveItems(toSave)
-                            val prefix = if (res.ankiSuccess || res.sheetsSuccess) "✓ " else "⚠️ "
-                            btnSaveVocab.text = prefix + res.message
-                            Toast.makeText(this@GrammarAccessibilityService, res.message, Toast.LENGTH_LONG).show()
-                        }
-                    }
-                } else {
-                    layoutVocab.visibility = View.GONE
-                }
-            }.onFailure { error ->
-                tvError.visibility = View.VISIBLE
-                tvError.text = "Error: ${error.localizedMessage}"
+            if (newText.isBlank()) {
+                Toast.makeText(this, "Clipboard is empty! Copy text first.", Toast.LENGTH_SHORT).show()
+            } else {
+                executeTranslation(newText)
             }
+        }
+
+        try {
+            windowManager.addView(root, translationDialogParams)
+            executeTranslation(initialText)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error adding translation dialog view", e)
         }
     }
 

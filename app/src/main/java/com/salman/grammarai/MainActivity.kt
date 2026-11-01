@@ -169,8 +169,23 @@ class MainActivity : AppCompatActivity() {
         binding.swClipboardTranslation.isChecked = prefs.clipboardTranslationEnabled
         binding.swClipboardTranslation.setOnCheckedChangeListener { _, isChecked ->
             prefs.clipboardTranslationEnabled = isChecked
-            val msg = if (isChecked) "Clipboard Translator enabled" else "Clipboard Translator disabled"
-            Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+            val service = GrammarAccessibilityService.instance
+            if (isChecked) {
+                if (Settings.canDrawOverlays(this)) {
+                    service?.showTranslateBubble()
+                    Toast.makeText(this, "Translate bubble enabled (Tap 🌐 on screen to translate)", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(this, "Please allow 'Display over other apps'", Toast.LENGTH_LONG).show()
+                    val intent = Intent(
+                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        Uri.parse("package:$packageName")
+                    )
+                    startActivity(intent)
+                }
+            } else {
+                service?.removeTranslateBubbleView()
+                Toast.makeText(this, "Translate bubble disabled", Toast.LENGTH_SHORT).show()
+            }
         }
 
         binding.btnConfigureFloating.setOnClickListener {
@@ -205,6 +220,9 @@ class MainActivity : AppCompatActivity() {
             binding.tvFloatingStatus.text = getString(R.string.status_floating_active)
             binding.tvFloatingStatus.setTextColor(ContextCompat.getColor(this, R.color.success))
             binding.btnConfigureFloating.text = "Configured ✓"
+            if (prefs.clipboardTranslationEnabled) {
+                GrammarAccessibilityService.instance?.showTranslateBubble()
+            }
         } else {
             val missing = when {
                 !hasOverlay && !hasAccess -> "Overlay & Accessibility Needed"
