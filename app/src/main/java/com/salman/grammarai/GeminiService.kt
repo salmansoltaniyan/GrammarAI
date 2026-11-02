@@ -109,6 +109,7 @@ class GeminiService {
         promptTemplate: String,
         preferredModel: String = PreferencesManager.DEFAULT_MODEL,
         sentenceScope: Int = 0,
+        enableDeepThinking: Boolean = false,
         isRetry: Boolean = false
     ): Result<GrammarResult> {
         return withContext(Dispatchers.IO) {
@@ -155,7 +156,11 @@ class GeminiService {
                         put("temperature", 0.2)
                         put("responseMimeType", "application/json")
                         put("thinkingConfig", JSONObject().apply {
-                            put("thinkingLevel", "low")
+                            if (enableDeepThinking) {
+                                put("thinkingBudget", 1024)
+                            } else {
+                                put("thinkingBudget", 0)
+                            }
                         })
                     })
                 }
@@ -174,10 +179,10 @@ class GeminiService {
                     if (!isRetry) {
                         Log.w(TAG, "Socket timeout, retrying once...")
                         delay(1000)
-                        return@withContext checkGrammar(text, apiKey, promptTemplate, preferredModel, sentenceScope, isRetry = true)
+                        return@withContext checkGrammar(text, apiKey, promptTemplate, preferredModel, sentenceScope, enableDeepThinking, isRetry = true)
                     }
                     return@withContext Result.failure(
-                        Exception("Connection timed out.\n\nPlease ensure your VPN is connected and Grammar AI is not excluded in your VPN settings.")
+                        Exception("Connection timed out.\n\nPlease check your internet connection.")
                     )
                 }
 
@@ -187,7 +192,7 @@ class GeminiService {
                 if ((response.code == 503 || response.code == 429) && !isRetry) {
                     Log.w(TAG, "Server busy (HTTP ${response.code}). Retrying in 2s...")
                     delay(2000)
-                    return@withContext checkGrammar(text, apiKey, promptTemplate, preferredModel, sentenceScope, isRetry = true)
+                    return@withContext checkGrammar(text, apiKey, promptTemplate, preferredModel, sentenceScope, enableDeepThinking, isRetry = true)
                 }
 
                 if (!response.isSuccessful) {
@@ -200,7 +205,7 @@ class GeminiService {
                     // Fallback model if 404
                     if ((response.code == 404 || errorMsg.contains("not found", ignoreCase = true)) && normalizedModel != "gemini-3.1-flash-lite") {
                         Log.w(TAG, "Model $normalizedModel not found, falling back to gemini-3.1-flash-lite")
-                        return@withContext checkGrammar(text, apiKey, promptTemplate, "gemini-3.1-flash-lite", sentenceScope, isRetry = true)
+                        return@withContext checkGrammar(text, apiKey, promptTemplate, "gemini-3.1-flash-lite", sentenceScope, enableDeepThinking, isRetry = true)
                     }
 
                     return@withContext Result.failure(Exception("[$normalizedModel] $errorMsg"))
@@ -305,6 +310,7 @@ class GeminiService {
         text: String,
         apiKey: String,
         preferredModel: String = PreferencesManager.DEFAULT_MODEL,
+        enableDeepThinking: Boolean = false,
         isRetry: Boolean = false
     ): Result<TranslationResult> {
         return withContext(Dispatchers.IO) {
@@ -367,7 +373,11 @@ Output strictly valid JSON with this exact schema:
                         put("temperature", 0.2)
                         put("responseMimeType", "application/json")
                         put("thinkingConfig", JSONObject().apply {
-                            put("thinkingLevel", "low")
+                            if (enableDeepThinking) {
+                                put("thinkingBudget", 1024)
+                            } else {
+                                put("thinkingBudget", 0)
+                            }
                         })
                     })
                 }
@@ -386,10 +396,10 @@ Output strictly valid JSON with this exact schema:
                     if (!isRetry) {
                         Log.w(TAG, "Socket timeout in translation, retrying once...")
                         delay(1000)
-                        return@withContext translateText(text, apiKey, preferredModel, isRetry = true)
+                        return@withContext translateText(text, apiKey, preferredModel, enableDeepThinking, isRetry = true)
                     }
                     return@withContext Result.failure(
-                        Exception("Connection timed out.\n\nPlease ensure your VPN is connected and Grammar AI is not excluded in your VPN settings.")
+                        Exception("Connection timed out.\n\nPlease check your internet connection.")
                     )
                 }
 
@@ -398,7 +408,7 @@ Output strictly valid JSON with this exact schema:
                 if ((response.code == 503 || response.code == 429) && !isRetry) {
                     Log.w(TAG, "Server busy (HTTP ${response.code}). Retrying translation in 2s...")
                     delay(2000)
-                    return@withContext translateText(text, apiKey, preferredModel, isRetry = true)
+                    return@withContext translateText(text, apiKey, preferredModel, enableDeepThinking, isRetry = true)
                 }
 
                 if (!response.isSuccessful) {
@@ -410,7 +420,7 @@ Output strictly valid JSON with this exact schema:
 
                     if ((response.code == 404 || errorMsg.contains("not found", ignoreCase = true)) && normalizedModel != "gemini-3.1-flash-lite") {
                         Log.w(TAG, "Model $normalizedModel not found, falling back to gemini-3.1-flash-lite")
-                        return@withContext translateText(text, apiKey, "gemini-3.1-flash-lite", isRetry = true)
+                        return@withContext translateText(text, apiKey, "gemini-3.1-flash-lite", enableDeepThinking, isRetry = true)
                     }
 
                     return@withContext Result.failure(Exception("[$normalizedModel] $errorMsg"))

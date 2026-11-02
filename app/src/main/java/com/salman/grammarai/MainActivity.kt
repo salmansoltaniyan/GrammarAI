@@ -136,6 +136,17 @@ class MainActivity : AppCompatActivity() {
 
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
+
+        binding.swDeepThinking.isChecked = prefs.deepThinkingEnabled
+        binding.swDeepThinking.setOnCheckedChangeListener { _, isChecked ->
+            prefs.deepThinkingEnabled = isChecked
+            val modeMsg = if (isChecked) {
+                "Deep Thinking enabled (AI reasons before answering)"
+            } else {
+                "Fast Instant mode enabled (Sub-second responses)"
+            }
+            Toast.makeText(this@MainActivity, modeMsg, Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun setupSentenceScopeSection() {
@@ -460,7 +471,8 @@ class MainActivity : AppCompatActivity() {
                 apiKey = prefs.apiKey,
                 promptTemplate = prefs.customPrompt,
                 preferredModel = prefs.selectedModel,
-                sentenceScope = prefs.sentenceScope
+                sentenceScope = prefs.sentenceScope,
+                enableDeepThinking = prefs.deepThinkingEnabled
             )
             binding.pbLoading.visibility = View.GONE
             binding.btnTest.isEnabled = true

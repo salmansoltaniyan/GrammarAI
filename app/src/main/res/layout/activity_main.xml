@@ -140,6 +140,30 @@
                     android:popupBackground="@drawable/bg_spinner_popup"
                     android:paddingStart="12dp"
                     android:paddingEnd="12dp" />
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:background="@color/border"
+                    android:layout_marginTop="14dp"
+                    android:layout_marginBottom="12dp" />
+
+                <com.google.android.material.switchmaterial.SwitchMaterial
+                    android:id="@+id/swDeepThinking"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="🧠 Deep Thinking Mode"
+                    android:textColor="@color/text_primary"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Off by default for instant sub-second speed (thinkingBudget = 0). Turn on if you want the AI to spend extra time reasoning through complex sentences."
+                    android:textSize="12sp"
+                    android:textColor="@color/text_secondary"
+                    android:layout_marginTop="2dp" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 

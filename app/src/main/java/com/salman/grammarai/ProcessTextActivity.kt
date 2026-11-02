@@ -105,7 +105,8 @@ class ProcessTextActivity : AppCompatActivity() {
                 apiKey = prefs.apiKey,
                 promptTemplate = prefs.customPrompt,
                 preferredModel = prefs.selectedModel,
-                sentenceScope = prefs.sentenceScope
+                sentenceScope = prefs.sentenceScope,
+                enableDeepThinking = prefs.deepThinkingEnabled
             )
             binding.layoutLoading.visibility = View.GONE
 

@@ -40,6 +40,14 @@ class PreferencesManager(context: Context) {
         set(value) = prefs.edit().putBoolean(KEY_CLIPBOARD_TRANSLATION_ENABLED, value).apply()
 
     /**
+     * When false (default), thinkingBudget is 0 for ultra-fast, instant sub-second responses.
+     * When true, AI allocates tokens to think deeply before responding (+2-3s delay).
+     */
+    var deepThinkingEnabled: Boolean
+        get() = prefs.getBoolean(KEY_DEEP_THINKING, false)
+        set(value) = prefs.edit().putBoolean(KEY_DEEP_THINKING, value).apply()
+
+    /**
      * Correction scope:
      * 0 -> All sentences
      * 1 -> Last sentence only
@@ -84,6 +92,7 @@ class PreferencesManager(context: Context) {
         private const val KEY_ANKI_ENABLED = "anki_enabled"
         private const val KEY_SENTENCE_SCOPE = "sentence_scope"
         private const val KEY_CLIPBOARD_TRANSLATION_ENABLED = "clipboard_translation_enabled"
+        private const val KEY_DEEP_THINKING = "deep_thinking"
 
         const val DEFAULT_MODEL = "gemini-3.5-flash-lite"
 

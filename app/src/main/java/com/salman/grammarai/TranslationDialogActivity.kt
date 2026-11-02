@@ -120,7 +120,8 @@ class TranslationDialogActivity : AppCompatActivity() {
             val result = geminiService.translateText(
                 text = text,
                 apiKey = prefs.apiKey,
-                preferredModel = prefs.selectedModel
+                preferredModel = prefs.selectedModel,
+                enableDeepThinking = prefs.deepThinkingEnabled
             )
 
             binding.translateLoading.visibility = View.GONE
