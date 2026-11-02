@@ -110,6 +110,7 @@ class GeminiService {
         preferredModel: String = PreferencesManager.DEFAULT_MODEL,
         sentenceScope: Int = 0,
         enableDeepThinking: Boolean = false,
+        includeThinkingConfig: Boolean = true,
         isRetry: Boolean = false
     ): Result<GrammarResult> {
         return withContext(Dispatchers.IO) {
@@ -155,13 +156,9 @@ class GeminiService {
                     put("generationConfig", JSONObject().apply {
                         put("temperature", 0.2)
                         put("responseMimeType", "application/json")
-                        put("thinkingConfig", JSONObject().apply {
-                            if (enableDeepThinking) {
-                                put("thinkingBudget", 1024)
-                            } else {
-                                put("thinkingBudget", 0)
-                            }
-                        })
+                        if (includeThinkingConfig) {
+                            applyThinkingConfig(this, normalizedModel, enableDeepThinking)
+                        }
                     })
                 }
 
@@ -179,7 +176,7 @@ class GeminiService {
                     if (!isRetry) {
                         Log.w(TAG, "Socket timeout, retrying once...")
                         delay(1000)
-                        return@withContext checkGrammar(text, apiKey, promptTemplate, preferredModel, sentenceScope, enableDeepThinking, isRetry = true)
+                        return@withContext checkGrammar(text, apiKey, promptTemplate, preferredModel, sentenceScope, enableDeepThinking, includeThinkingConfig, isRetry = true)
                     }
                     return@withContext Result.failure(
                         Exception("Connection timed out.\n\nPlease check your internet connection.")
@@ -192,7 +189,7 @@ class GeminiService {
                 if ((response.code == 503 || response.code == 429) && !isRetry) {
                     Log.w(TAG, "Server busy (HTTP ${response.code}). Retrying in 2s...")
                     delay(2000)
-                    return@withContext checkGrammar(text, apiKey, promptTemplate, preferredModel, sentenceScope, enableDeepThinking, isRetry = true)
+                    return@withContext checkGrammar(text, apiKey, promptTemplate, preferredModel, sentenceScope, enableDeepThinking, includeThinkingConfig, isRetry = true)
                 }
 
                 if (!response.isSuccessful) {
@@ -202,10 +199,19 @@ class GeminiService {
                         "HTTP ${response.code}: $responseBody"
                     }
 
+                    // If HTTP 400 with invalid argument, retry once without thinkingConfig
+                    if (response.code == 400 && includeThinkingConfig && !isRetry) {
+                        Log.w(TAG, "HTTP 400 with thinkingConfig, retrying without thinkingConfig: $errorMsg")
+                        return@withContext checkGrammar(
+                            text, apiKey, promptTemplate, normalizedModel, sentenceScope,
+                            enableDeepThinking, includeThinkingConfig = false, isRetry = true
+                        )
+                    }
+
                     // Fallback model if 404
                     if ((response.code == 404 || errorMsg.contains("not found", ignoreCase = true)) && normalizedModel != "gemini-3.1-flash-lite") {
                         Log.w(TAG, "Model $normalizedModel not found, falling back to gemini-3.1-flash-lite")
-                        return@withContext checkGrammar(text, apiKey, promptTemplate, "gemini-3.1-flash-lite", sentenceScope, enableDeepThinking, isRetry = true)
+                        return@withContext checkGrammar(text, apiKey, promptTemplate, "gemini-3.1-flash-lite", sentenceScope, enableDeepThinking, includeThinkingConfig, isRetry = true)
                     }
 
                     return@withContext Result.failure(Exception("[$normalizedModel] $errorMsg"))
@@ -306,11 +312,34 @@ class GeminiService {
         )
     }
 
+    private fun applyThinkingConfig(
+        generationConfig: JSONObject,
+        model: String,
+        enableDeepThinking: Boolean
+    ) {
+        val lowerModel = model.lowercase()
+        // Gemini 1.5 does not support thinkingConfig
+        if (lowerModel.contains("gemini-1.5")) {
+            return
+        }
+
+        val thinkingConfig = JSONObject()
+        if (lowerModel.contains("gemini-2.")) {
+            // Gemini 2.x uses numeric thinkingBudget (0 = disable, >0 = enable)
+            thinkingConfig.put("thinkingBudget", if (enableDeepThinking) 1024 else 0)
+        } else {
+            // Gemini 3.x+ uses thinkingLevel (high = deep reasoning, minimal = fast instant mode)
+            thinkingConfig.put("thinkingLevel", if (enableDeepThinking) "high" else "minimal")
+        }
+        generationConfig.put("thinkingConfig", thinkingConfig)
+    }
+
     suspend fun translateText(
         text: String,
         apiKey: String,
         preferredModel: String = PreferencesManager.DEFAULT_MODEL,
         enableDeepThinking: Boolean = false,
+        includeThinkingConfig: Boolean = true,
         isRetry: Boolean = false
     ): Result<TranslationResult> {
         return withContext(Dispatchers.IO) {
@@ -372,13 +401,9 @@ Output strictly valid JSON with this exact schema:
                     put("generationConfig", JSONObject().apply {
                         put("temperature", 0.2)
                         put("responseMimeType", "application/json")
-                        put("thinkingConfig", JSONObject().apply {
-                            if (enableDeepThinking) {
-                                put("thinkingBudget", 1024)
-                            } else {
-                                put("thinkingBudget", 0)
-                            }
-                        })
+                        if (includeThinkingConfig) {
+                            applyThinkingConfig(this, normalizedModel, enableDeepThinking)
+                        }
                     })
                 }
 
@@ -396,7 +421,7 @@ Output strictly valid JSON with this exact schema:
                     if (!isRetry) {
                         Log.w(TAG, "Socket timeout in translation, retrying once...")
                         delay(1000)
-                        return@withContext translateText(text, apiKey, preferredModel, enableDeepThinking, isRetry = true)
+                        return@withContext translateText(text, apiKey, preferredModel, enableDeepThinking, includeThinkingConfig, isRetry = true)
                     }
                     return@withContext Result.failure(
                         Exception("Connection timed out.\n\nPlease check your internet connection.")
@@ -408,7 +433,7 @@ Output strictly valid JSON with this exact schema:
                 if ((response.code == 503 || response.code == 429) && !isRetry) {
                     Log.w(TAG, "Server busy (HTTP ${response.code}). Retrying translation in 2s...")
                     delay(2000)
-                    return@withContext translateText(text, apiKey, preferredModel, enableDeepThinking, isRetry = true)
+                    return@withContext translateText(text, apiKey, preferredModel, enableDeepThinking, includeThinkingConfig, isRetry = true)
                 }
 
                 if (!response.isSuccessful) {
@@ -418,9 +443,18 @@ Output strictly valid JSON with this exact schema:
                         "HTTP ${response.code}: $responseBody"
                     }
 
+                    // If HTTP 400 with invalid argument, retry once without thinkingConfig
+                    if (response.code == 400 && includeThinkingConfig && !isRetry) {
+                        Log.w(TAG, "HTTP 400 in translateText with thinkingConfig, retrying without thinkingConfig: $errorMsg")
+                        return@withContext translateText(
+                            text, apiKey, normalizedModel, enableDeepThinking,
+                            includeThinkingConfig = false, isRetry = true
+                        )
+                    }
+
                     if ((response.code == 404 || errorMsg.contains("not found", ignoreCase = true)) && normalizedModel != "gemini-3.1-flash-lite") {
                         Log.w(TAG, "Model $normalizedModel not found, falling back to gemini-3.1-flash-lite")
-                        return@withContext translateText(text, apiKey, "gemini-3.1-flash-lite", enableDeepThinking, isRetry = true)
+                        return@withContext translateText(text, apiKey, "gemini-3.1-flash-lite", enableDeepThinking, includeThinkingConfig, isRetry = true)
                     }
 
                     return@withContext Result.failure(Exception("[$normalizedModel] $errorMsg"))
