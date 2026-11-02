@@ -14,6 +14,7 @@ import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.core.content.FileProvider
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.salman.grammarai.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -203,13 +204,13 @@ class UpdateManager(private val context: Context) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 context.registerReceiver(
                     onCompleteReceiver,
-                    IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETED),
+                    IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE),
                     Context.RECEIVER_EXPORTED
                 )
             } else {
                 context.registerReceiver(
                     onCompleteReceiver,
-                    IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETED)
+                    IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
                 )
             }
         } catch (e: Exception) {
@@ -271,3 +272,4 @@ class UpdateManager(private val context: Context) {
         }
     }
 }
+

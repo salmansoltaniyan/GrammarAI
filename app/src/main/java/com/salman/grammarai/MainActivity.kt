@@ -17,6 +17,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.salman.grammarai.BuildConfig
 import com.salman.grammarai.databinding.ActivityMainBinding
 import kotlinx.coroutines.launch
 
