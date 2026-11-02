@@ -24,6 +24,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private lateinit var prefs: PreferencesManager
+    private lateinit var updateManager: UpdateManager
     private val geminiService = GeminiService()
     private val ankiService = AnkiService()
 
@@ -66,6 +67,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         prefs = PreferencesManager(this)
+        updateManager = UpdateManager(this)
 
         setupApiKeySection()
         setupModelSection()
@@ -74,6 +76,7 @@ class MainActivity : AppCompatActivity() {
         setupAnkiSection()
         setupGoogleSheetsSection()
         setupPromptSection()
+        setupUpdateSection()
         setupTestSection()
     }
 
@@ -379,6 +382,51 @@ class MainActivity : AppCompatActivity() {
             binding.etPrompt.setText(PreferencesManager.DEFAULT_PROMPT)
             binding.tilPrompt.error = null
             Toast.makeText(this, "Reset to default prompt!", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun setupUpdateSection() {
+        binding.tvCurrentVersion.text = "v${BuildConfig.VERSION_NAME}"
+
+        // Background check on launch to notify if a newer version is available
+        lifecycleScope.launch {
+            val result = updateManager.checkForUpdates()
+            result.onSuccess { release ->
+                if (release.isNewer) {
+                    binding.tvUpdateStatus.text = "New version available: ${release.tagName} 🎉"
+                    binding.tvUpdateStatus.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.primary))
+                    updateManager.showUpdateDialog(release)
+                }
+            }
+        }
+
+        binding.btnCheckUpdate.setOnClickListener {
+            binding.btnCheckUpdate.isEnabled = false
+            binding.btnCheckUpdate.text = "Checking GitHub..."
+            binding.tvUpdateStatus.text = "Connecting to GitHub Releases API..."
+
+            lifecycleScope.launch {
+                val result = updateManager.checkForUpdates()
+                binding.btnCheckUpdate.isEnabled = true
+                binding.btnCheckUpdate.text = "🔄 Check for Updates"
+
+                result.onSuccess { release ->
+                    if (release.isNewer) {
+                        binding.tvUpdateStatus.text = "New version available: ${release.tagName} 🎉"
+                        binding.tvUpdateStatus.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.primary))
+                        updateManager.showUpdateDialog(release)
+                    } else {
+                        binding.tvUpdateStatus.text = "You are on the latest version (${release.tagName}) ✓"
+                        binding.tvUpdateStatus.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.success))
+                        Toast.makeText(this@MainActivity, "You're on the latest version (${release.tagName}) ✓", Toast.LENGTH_SHORT).show()
+                    }
+                }.onFailure { error ->
+                    val errorMsg = error.localizedMessage ?: "Failed to check updates"
+                    binding.tvUpdateStatus.text = "Update check: $errorMsg"
+                    binding.tvUpdateStatus.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.error))
+                    Toast.makeText(this@MainActivity, errorMsg, Toast.LENGTH_LONG).show()
+                }
+            }
         }
     }
 
